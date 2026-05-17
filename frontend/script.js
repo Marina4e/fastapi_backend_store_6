@@ -1,0 +1,320 @@
+const output = document.querySelector("#output");
+const statusBadge = document.querySelector("#apiStatus");
+const form = document.querySelector("#purchaseForm");
+const refreshStockButton = document.querySelector("#refreshStock");
+const resetStockButton = document.querySelector("#resetStock");
+const resetStockValue = document.querySelector("#resetStockValue");
+const messageBox = document.querySelector("#message");
+const currentStock = document.querySelector("#currentStock");
+const startLoadTestButton = document.querySelector("#startLoadTest");
+const stopLoadTestButton = document.querySelector("#stopLoadTest");
+const loadOutput = document.querySelector("#loadOutput");
+
+const loadInputs = {
+  rps: document.querySelector("#rpsInput"),
+  duration: document.querySelector("#durationInput"),
+  concurrency: document.querySelector("#concurrencyInput"),
+  productId: document.querySelector("#loadProductIdInput"),
+  purchasedCount: document.querySelector("#loadPurchasedCountInput"),
+  timeoutMs: document.querySelector("#timeoutInput"),
+};
+
+const metricElements = {
+  status: document.querySelector("#loadStatus"),
+  scheduled: document.querySelector("#scheduledCount"),
+  completed: document.querySelector("#completedCount"),
+  success: document.querySelector("#successCount"),
+  conflict: document.querySelector("#conflictCount"),
+  errors: document.querySelector("#errorCount"),
+  dropped: document.querySelector("#droppedCount"),
+  actualRps: document.querySelector("#actualRps"),
+  inFlight: document.querySelector("#inFlightCount"),
+};
+
+let activeLoadTest = null;
+
+function show(value) {
+  output.textContent = JSON.stringify(value, null, 2);
+}
+
+function showLoad(value) {
+  loadOutput.textContent = JSON.stringify(value, null, 2);
+}
+
+function setMessage(text, type = "info") {
+  messageBox.textContent = text;
+  messageBox.className = `message ${type === "info" ? "" : type}`;
+}
+
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    ...options,
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw { status: response.status, data };
+  }
+  return data;
+}
+
+function getPurchasePayload() {
+  const payload = Object.fromEntries(new FormData(form).entries());
+  return {
+    user_id: Number(payload.user_id),
+    product_id: Number(payload.product_id),
+    purchased_count: Number(payload.purchased_count),
+  };
+}
+
+async function checkHealth() {
+  try {
+    await requestJson("/health");
+    statusBadge.textContent = "online";
+    statusBadge.className = "status ok";
+  } catch (error) {
+    statusBadge.textContent = "offline";
+    statusBadge.className = "status error";
+    setMessage("API недоступний. Перевір Docker і /health.", "error");
+  }
+}
+
+async function refreshStock(message = "Залишок оновлено.") {
+  const productId = getPurchasePayload().product_id;
+  try {
+    const product = await requestJson(`/products/${productId}`);
+    currentStock.textContent = product.stock;
+    show(product);
+    setMessage(`${message} Поточний stock для product_id=${productId}: ${product.stock}.`, "ok");
+    return product;
+  } catch (error) {
+    show(error);
+    setMessage("Не вдалося оновити залишок. Перевір product_id або API.", "error");
+    return null;
+  }
+}
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = getPurchasePayload();
+
+  try {
+    const result = await requestJson("/purchase", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    show(result);
+    setMessage(`Покупка успішна. Списано ${payload.purchased_count} одиниць.`, "ok");
+    await refreshStock("Залишок після покупки оновлено.");
+  } catch (error) {
+    show(error);
+    if (error.status === 409) {
+      setMessage("Покупка не виконана: товару недостатньо на складі.", "error");
+    } else {
+      setMessage("Покупка не виконана. Подивись JSON-відповідь нижче.", "error");
+    }
+  }
+});
+
+refreshStockButton.addEventListener("click", async () => {
+  refreshStockButton.disabled = true;
+  await refreshStock();
+  refreshStockButton.disabled = false;
+});
+
+resetStockButton.addEventListener("click", async () => {
+  const productId = getPurchasePayload().product_id;
+  const stock = Number(resetStockValue.value);
+
+  if (!Number.isInteger(stock) || stock < 0) {
+    setMessage("Новий залишок має бути цілим числом від 0 і більше.", "error");
+    return;
+  }
+
+  resetStockButton.disabled = true;
+  try {
+    const product = await requestJson(`/products/${productId}/reset`, {
+      method: "POST",
+      body: JSON.stringify({ stock }),
+    });
+    currentStock.textContent = product.stock;
+    show(product);
+    setMessage(`Залишок скинуто. Тепер product_id=${productId} має stock=${product.stock}.`, "ok");
+  } catch (error) {
+    show(error);
+    setMessage("Не вдалося скинути залишок. Перевір product_id або API.", "error");
+  } finally {
+    resetStockButton.disabled = false;
+  }
+});
+
+function updateMetrics(state) {
+  const elapsedSeconds = state.startedAt ? (performance.now() - state.startedAt) / 1000 : 0;
+  const completed = state.success + state.conflict + state.errors;
+  const actualRps = elapsedSeconds > 0 ? completed / elapsedSeconds : 0;
+
+  metricElements.status.textContent = state.status;
+  metricElements.scheduled.textContent = state.scheduled;
+  metricElements.completed.textContent = completed;
+  metricElements.success.textContent = state.success;
+  metricElements.conflict.textContent = state.conflict;
+  metricElements.errors.textContent = state.errors;
+  metricElements.dropped.textContent = state.dropped;
+  metricElements.actualRps.textContent = actualRps.toFixed(1);
+  metricElements.inFlight.textContent = state.inFlight;
+
+  showLoad({
+    status: state.status,
+    elapsed_seconds: Number(elapsedSeconds.toFixed(2)),
+    scheduled_requests: state.scheduled,
+    completed_requests: completed,
+    successful_purchases: state.success,
+    stock_conflicts: state.conflict,
+    timeout_or_other_errors: state.errors,
+    dropped_by_browser: state.dropped,
+    in_flight: state.inFlight,
+    actual_rps: Number(actualRps.toFixed(1)),
+    target: state.target,
+    note: "Це браузерний навчальний RPS-тест. Для точнішого benchmark використовуй tests/load_test.py.",
+  });
+}
+
+async function sendPurchase(payload, timeoutMs, state) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  state.inFlight += 1;
+  updateMetrics(state);
+
+  try {
+    const response = await fetch("/purchase", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
+    if (response.status === 200) {
+      state.success += 1;
+    } else if (response.status === 409) {
+      state.conflict += 1;
+    } else {
+      state.errors += 1;
+    }
+  } catch (error) {
+    state.errors += 1;
+  } finally {
+    window.clearTimeout(timer);
+    state.inFlight -= 1;
+    updateMetrics(state);
+  }
+}
+
+async function runLoadTest() {
+  if (activeLoadTest) {
+    setMessage("RPS-тест уже запущений.", "error");
+    return;
+  }
+
+  const rps = Number(loadInputs.rps.value);
+  const duration = Number(loadInputs.duration.value);
+  const concurrency = Number(loadInputs.concurrency.value);
+  const productId = Number(loadInputs.productId.value);
+  const purchasedCount = Number(loadInputs.purchasedCount.value);
+  const timeoutMs = Number(loadInputs.timeoutMs.value);
+  const values = [rps, duration, concurrency, productId, purchasedCount, timeoutMs];
+
+  if (values.some((value) => !Number.isFinite(value) || value <= 0)) {
+    setMessage("Усі поля RPS-тесту мають бути числами більше 0.", "error");
+    return;
+  }
+
+  const state = {
+    status: "running",
+    startedAt: performance.now(),
+    scheduled: 0,
+    success: 0,
+    conflict: 0,
+    errors: 0,
+    dropped: 0,
+    inFlight: 0,
+    stopRequested: false,
+    target: {
+      rps,
+      duration,
+      concurrency,
+      product_id: productId,
+      purchased_count: purchasedCount,
+      timeout_ms: timeoutMs,
+    },
+  };
+
+  activeLoadTest = state;
+  startLoadTestButton.disabled = true;
+  stopLoadTestButton.disabled = false;
+  setMessage(`RPS-тест запущено: ${rps} RPS на ${duration} секунд.`, "ok");
+  updateMetrics(state);
+
+  const stopAt = performance.now() + duration * 1000;
+  const intervalMs = 1000 / rps;
+  let nextRequestAt = performance.now();
+  let userId = Date.now();
+
+  while (!state.stopRequested && performance.now() < stopAt) {
+    const now = performance.now();
+    if (now < nextRequestAt) {
+      await new Promise((resolve) => window.setTimeout(resolve, nextRequestAt - now));
+    }
+
+    if (state.inFlight < concurrency) {
+      state.scheduled += 1;
+      userId += 1;
+      sendPurchase(
+        {
+          user_id: userId,
+          product_id: productId,
+          purchased_count: purchasedCount,
+        },
+        timeoutMs,
+        state
+      );
+    } else {
+      state.dropped += 1;
+    }
+
+    nextRequestAt += intervalMs;
+    updateMetrics(state);
+  }
+
+  state.status = "draining";
+  setMessage("RPS-тест завершується, чекаємо останні відповіді.", "ok");
+  updateMetrics(state);
+
+  const drainUntil = performance.now() + timeoutMs + 500;
+  while (state.inFlight > 0 && performance.now() < drainUntil) {
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  }
+
+  state.status = state.stopRequested ? "stopped" : "finished";
+  updateMetrics(state);
+  setMessage(state.stopRequested ? "RPS-тест зупинено." : "RPS-тест завершено.", "ok");
+  await refreshStock("Залишок після RPS-тесту оновлено.");
+
+  activeLoadTest = null;
+  startLoadTestButton.disabled = false;
+  stopLoadTestButton.disabled = true;
+}
+
+startLoadTestButton.addEventListener("click", runLoadTest);
+
+stopLoadTestButton.addEventListener("click", () => {
+  if (activeLoadTest) {
+    activeLoadTest.stopRequested = true;
+    setMessage("Отримано команду зупинити RPS-тест.", "ok");
+  }
+});
+
+checkHealth();
+refreshStock("Початковий залишок завантажено.");

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Store Load API</title>
+    <link rel="stylesheet" href="/frontend/styles.css?v=3" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel">
+        <div class="header">
+          <div>
+            <p class="eyebrow">FastAPI + PostgreSQL</p>
+            <h1>Тест покупки товару</h1>
+          </div>
+          <span id="apiStatus" class="status">checking</span>
+        </div>
+
+        <h2>Ручна перевірка</h2>
+        <form id="purchaseForm" class="grid">
+          <label>
+            User ID
+            <input name="user_id" type="number" min="1" value="12345" required />
+          </label>
+          <label>
+            Product ID
+            <input name="product_id" type="number" min="1" value="42" required />
+          </label>
+          <label>
+            Purchased count
+            <input name="purchased_count" type="number" min="1" value="2" required />
+          </label>
+          <button type="submit">Купити</button>
+        </form>
+
+        <div class="actions">
+          <div id="message" class="message">Готово до перевірки.</div>
+          <div class="stock-line">
+            <span>Поточний залишок товару</span>
+            <strong id="currentStock">-</strong>
+          </div>
+          <button id="refreshStock" type="button">Оновити залишок</button>
+          <div class="reset-row">
+            <label>
+              Новий залишок, мінімум 0
+              <input id="resetStockValue" type="number" min="0" value="20000" />
+            </label>
+            <button id="resetStock" type="button">Скинути залишок</button>
+          </div>
+          <pre id="output">{}</pre>
+        </div>
+
+        <h2>RPS-тест з браузера</h2>
+        <div id="loadTestForm" class="grid load-grid">
+          <label>
+            RPS
+            <input id="rpsInput" type="number" min="1" max="2000" value="100" required />
+          </label>
+          <label>
+            Тривалість, сек
+            <input id="durationInput" type="number" min="1" max="60" value="5" required />
+          </label>
+          <label>
+            Конкурентність
+            <input id="concurrencyInput" type="number" min="1" max="500" value="50" required />
+          </label>
+          <label>
+            Product ID
+            <input id="loadProductIdInput" type="number" min="1" value="42" required />
+          </label>
+          <label>
+            Purchased count
+            <input id="loadPurchasedCountInput" type="number" min="1" value="1" required />
+          </label>
+          <label>
+            Timeout, мс
+            <input id="timeoutInput" type="number" min="100" max="10000" value="2000" required />
+          </label>
+          <button id="startLoadTest" type="button">Запустити RPS-тест</button>
+          <button id="stopLoadTest" type="button" disabled>Зупинити тест</button>
+        </div>
+
+        <div class="metrics">
+          <div>
+            <span>Статус</span>
+            <strong id="loadStatus">idle</strong>
+          </div>
+          <div>
+            <span>Заплановано</span>
+            <strong id="scheduledCount">0</strong>
+          </div>
+          <div>
+            <span>Завершено</span>
+            <strong id="completedCount">0</strong>
+          </div>
+          <div>
+            <span>Успішно</span>
+            <strong id="successCount">0</strong>
+          </div>
+          <div>
+            <span>409 Conflict</span>
+            <strong id="conflictCount">0</strong>
+          </div>
+          <div>
+            <span>Timeout/Error</span>
+            <strong id="errorCount">0</strong>
+          </div>
+          <div>
+            <span>Dropped</span>
+            <strong id="droppedCount">0</strong>
+          </div>
+          <div>
+            <span>Фактичний RPS</span>
+            <strong id="actualRps">0</strong>
+          </div>
+          <div>
+            <span>In-flight</span>
+            <strong id="inFlightCount">0</strong>
+          </div>
+        </div>
+        <pre id="loadOutput">{}</pre>
+      </section>
+    </main>
+
+    <script src="/frontend/script.js?v=4"></script>
+  </body>
+</html>
