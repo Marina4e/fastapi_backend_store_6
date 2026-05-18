@@ -1,265 +1,665 @@
-# FastAPI Backend Store: висновок і перевірка RPS
+# FastAPI Backend Store: навантажений backend магазину
 
-Цей проєкт показує, як backend магазину поводиться під навантаженням. У ньому є товар зі складським залишком, endpoint `POST /purchase` для покупки та перевірка, що товар не продається “в мінус”, навіть коли багато користувачів купують одночасно.
+Цей проєкт показує, як backend магазину обробляє багато одночасних покупок одного товару. У системі є FastAPI API, PostgreSQL, Redis, RabbitMQ, Locust, Redis Commander, RabbitMQ Management UI і невеликий frontend для ручної перевірки.
 
-Головний висновок: правильний SQL-запит у PostgreSQL може безпечно обробляти одночасні покупки, а RPS треба перевіряти не “на око”, а через навантажувальний тест і графіки.
+Головна навчальна ідея: товар не має продаватися “в мінус”, навіть якщо багато користувачів одночасно натискають купити.
 
-## Що додано
+## Чого навчає цей проєкт
 
-- `PostgreSQL` з таблицею товарів.
-- `Redis` для швидкого збереження навчальних лічильників успішних покупок.
-- `Redis Commander` для перегляду ключів Redis у браузері.
-- `RabbitMQ` для запису подій про успішні покупки в чергу.
-- `RabbitMQ Management UI` для перегляду черг і повідомлень.
-- `Locust` для наочного тестування RPS у браузері.
-- Endpoint `GET /system/dependencies`, який показує стан Redis і RabbitMQ.
-- Файл `tests/locustfile.py` для запуску графічного RPS-тесту.
-- Старий консольний тест `tests/load_test.py` залишено для швидкої перевірки без графічного інтерфейсу.
+Проєкт навчає запускати backend-стенд через Docker, працювати з FastAPI endpoint-ами, перевіряти стан PostgreSQL, Redis і RabbitMQ, запускати RPS-тести через Locust і читати результати навантаження.
 
-## Як запустити
+Викладач дав саме такий тип завдання, бо тут є реальна backend-проблема: одночасний доступ до обмеженого ресурсу. У нашому випадку ресурс — це `stock` товару в базі.
 
-Потрібен Docker Desktop.
+## Архітектура
 
-```bash
+| Частина | Для чого потрібна |
+| --- | --- |
+| FastAPI | Приймає HTTP-запити: покупка, перегляд товару, healthcheck |
+| PostgreSQL | Зберігає товар і залишок `stock` |
+| Redis | Зберігає швидкі навчальні значення: лічильник успішних покупок і останню покупку |
+| RabbitMQ | Зберігає події успішних покупок у черзі `purchase_events` |
+| Redis Commander | Дає подивитися ключі Redis у браузері |
+| RabbitMQ Management UI | Дає подивитися черги RabbitMQ у браузері |
+| Locust | Генерує навантаження і показує RPS, latency, failures |
+| Frontend | Дає вручну купити товар, скинути залишок і запустити простий браузерний RPS-тест |
+
+## Як працює покупка
+
+Endpoint:
+
+```text
+POST /purchase
+```
+
+Приклад input:
+
+```json
+{
+  "user_id": 12345,
+  "product_id": 42,
+  "purchased_count": 1
+}
+```
+
+Головний SQL-запит:
+
+```sql
+UPDATE products
+SET stock = stock - $1
+WHERE product_id = $2
+  AND stock >= $1
+RETURNING product_id
+```
+
+Цей запит важливий, бо перевірка залишку і списання виконуються однією атомарною операцією. Якщо товару вистачає, PostgreSQL списує залишок. Якщо товару не вистачає, залишок не змінюється, а API повертає `409 Conflict`.
+
+Після успішної покупки API також:
+
+- збільшує Redis-ключ `store:purchases:success`;
+- записує останню покупку в Redis-ключ `store:purchases:last`;
+- публікує подію покупки в RabbitMQ queue `purchase_events`.
+
+## Запуск проєкту
+
+Спочатку відкрий Docker Desktop і дочекайся, поки Docker Engine запуститься.
+
+Перейди в папку проєкту:
+
+```powershell
+cd D:\VSCode_Python_Projects_26\fastapi_backend_store_6
+```
+
+Зібрати образи:
+
+```powershell
 docker compose build
+```
+
+Запустити всі сервіси у фоні:
+
+```powershell
 docker compose up -d
+```
+
+Перевірити стан контейнерів:
+
+```powershell
 docker compose ps
 ```
 
-Після запуску відкрий:
+Очікувано мають працювати:
 
-| Сервіс | Адреса | Для чого |
+- `api`;
+- `postgres`;
+- `redis`;
+- `redis-commander`;
+- `rabbitmq`;
+- `locust`.
+
+## Адреси сервісів
+
+| Сервіс | Адреса | Що там робити |
 | --- | --- | --- |
-| FastAPI frontend | http://127.0.0.1:8000/frontend/ | ручна покупка і простий браузерний RPS-тест |
-| API документація | http://127.0.0.1:8000/docs | перевірка endpoint-ів |
-| Locust | http://127.0.0.1:8089 | графіки RPS, latency, помилки |
-| Redis Commander | http://127.0.0.1:8081 | перегляд ключів Redis |
-| RabbitMQ UI | http://127.0.0.1:15672 | перегляд черги `purchase_events` |
+| Frontend | http://127.0.0.1:8000/frontend/ | Купити товар, скинути залишок, запустити браузерний RPS-тест |
+| Swagger API docs | http://127.0.0.1:8000/docs | Подивитися і протестувати endpoint-и |
+| Healthcheck | http://127.0.0.1:8000/health | Перевірити, що API живий |
+| Dependencies | http://127.0.0.1:8000/system/dependencies | Перевірити Redis і RabbitMQ |
+| Locust | http://127.0.0.1:8089 | Запустити графічний RPS-тест |
+| Redis Commander | http://127.0.0.1:8081 | Подивитися ключі Redis |
+| RabbitMQ UI | http://127.0.0.1:15672 | Подивитися черги RabbitMQ |
 
-Логін і пароль RabbitMQ за замовчуванням:
+RabbitMQ login:
 
 ```text
 guest / guest
 ```
 
-## Як перевірити, що все працює
+## Перевірка після запуску
 
-Спочатку відкрий:
+Перевірити API:
 
-```text
-http://127.0.0.1:8000/system/dependencies
+```powershell
+curl http://127.0.0.1:8000/health
 ```
 
-Очікуваний зміст відповіді:
+Очікувано:
 
 ```json
-{
-  "redis": {
-    "connected": true
-  },
-  "rabbitmq": {
-    "connected": true,
-    "queue": "purchase_events"
-  }
-}
+{"status":"ok"}
 ```
 
-Після успішних покупок у Redis зʼявляється ключ `store:purchases:success`, а в RabbitMQ накопичуються повідомлення в черзі `purchase_events`.
+Перевірити Redis і RabbitMQ:
 
-Під час локальної перевірки 2026-05-18 усі сервіси піднялись через Docker Compose:
-
-```text
-api               Up
-postgres          Up (healthy)
-redis             Up (healthy)
-rabbitmq          Up (healthy)
-redis-commander   Up (healthy)
-locust            Up
+```powershell
+curl http://127.0.0.1:8000/system/dependencies
 ```
 
-Перевірка API після запуску:
-
-```json
-{
-  "status": "ok"
-}
-```
-
-Перевірка Redis і RabbitMQ:
-
-```json
-{
-  "redis": {
-    "connected": true
-  },
-  "rabbitmq": {
-    "connected": true,
-    "queue": "purchase_events"
-  }
-}
-```
-
-## Як подивитися RPS наочно через Locust
-
-1. Відкрий http://127.0.0.1:8089.
-2. У полі `Number of users` постав, наприклад, `100`.
-3. У полі `Ramp up` постав `20`.
-4. Host має бути `http://api:8000`. Якщо поле порожнє, введи це значення.
-5. Натисни `Start swarming`.
-6. Вкладка `Charts` покаже RPS, час відповіді та кількість помилок.
-
-Перед новим тестом зручно скинути залишок товару через frontend:
-
-```text
-http://127.0.0.1:8000/frontend/
-```
-
-Для тестового товару використовуй:
-
-```text
-product_id = 42
-stock = 10000 або більше
-```
-
-## Консольний RPS-тест
-
-Якщо потрібен не графік, а коротка таблиця в терміналі:
-
-```bash
-pip install -r tests/requirements.txt
-python tests/load_test.py --base-url http://127.0.0.1:8000 --rps 500 --duration 15 --concurrency 50
-```
-
-У кінці скрипт покаже:
-
-- цільовий RPS;
-- фактичний RPS;
-- кількість успішних покупок;
-- кількість `409 Conflict`;
-- середню затримку;
-- `P95 latency`.
-
-## Перевірений Locust RPS-тест
-
-Контрольний тест був запущений після `docker compose build` і `docker compose up -d`.
-
-Перед тестом:
-
-```text
-product_id = 42
-stock = 50000
-Redis очищено через FLUSHDB
-RabbitMQ queue purchase_events очищено
-```
-
-Команда тесту:
-
-```bash
-docker compose run --rm -T locust -f /mnt/locust/locustfile.py --host http://api:8000 --headless -u 100 -r 20 -t 30s --only-summary
-```
-
-Параметри:
-
-| Параметр | Значення |
-| --- | --- |
-| Користувачі Locust | 100 |
-| Ramp up | 20 users/s |
-| Тривалість | 30 секунд |
-| Host | `http://api:8000` |
-| Основний endpoint | `POST /purchase` |
-
-Результат Locust:
-
-| Endpoint | Requests | Failures | Avg latency | P95 latency | RPS |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `POST /purchase` | 6248 | 0 | 387 ms | 750 ms | 209.09 |
-| `GET /products/{product_id}` | 662 | 0 | 217 ms | 440 ms | 22.15 |
-| `GET /system/dependencies` | 660 | 0 | 107 ms | 260 ms | 22.09 |
-| Aggregated | 7570 | 0 | 348 ms | 720 ms | 253.33 |
-
-Після завершення тесту система показала:
-
-| Перевірка | Значення |
-| --- | ---: |
-| Залишок товару після тесту | 43717 |
-| Redis `store:purchases:success` | 6283 |
-| RabbitMQ `purchase_events.messages_ready` | 6283 |
-| RabbitMQ consumers | 0 |
-
-Чому Locust показав `6248` покупок, а Redis/RabbitMQ `6283`: Locust друкує summary у момент завершення runner-а, а частина відповідей ще встигає дописатися в систему під час shutdown/drain. Для навчального висновку важливо, що помилок було `0%`, а PostgreSQL не допустив відʼємний stock.
-
-## Скриншоти перевірки
-
-Locust під час короткого UI-тесту:
-
-![Locust RPS](docs/screenshots/locust-rps.png)
-
-Redis Commander після тестів показує ключі `store:*`:
-
-![Redis Commander](docs/screenshots/redis-commander.png)
-
-RabbitMQ UI відкривається на http://127.0.0.1:15672 з логіном `guest / guest`. У headless-режимі браузер зупинився на login-формі, тому нижче додано знімок за фактичними даними з RabbitMQ Management API та Redis:
-
-![Redis and RabbitMQ status](docs/screenshots/dependency-status.png)
-
-Після додаткового короткого Locust UI-тесту для скриншота фінальний стан був таким:
+Приклад відповіді:
 
 ```json
 {
   "redis": {
     "connected": true,
-    "successful_purchases_recorded": 12992
+    "successful_purchases_recorded": 105295,
+    "last_purchase": {
+      "user_id": 105295,
+      "product_id": 42,
+      "purchased_count": 1,
+      "created_at": "2026-05-18T14:22:15.357034+00:00"
+    }
   },
   "rabbitmq": {
     "connected": true,
     "queue": "purchase_events",
-    "messages_ready": 12992,
+    "messages_ready": 20000,
     "consumers": 0
   }
 }
 ```
 
-## Що означають результати
+## Робота з frontend
 
-`RPS` означає requests per second, тобто скільки HTTP-запитів API обробляє за одну секунду.
-
-`200 OK` означає, що покупка пройшла успішно.
-
-`409 Conflict` у цьому проєкті не завжди є помилкою. Це очікувана відповідь, коли товар на складі закінчився. Важливо, що stock не стає відʼємним.
-
-`P95 latency` означає, що 95% запитів були не повільніші за це значення. Наприклад, `P95 = 80 ms` означає, що майже всі запити відповідали до 80 мс.
-
-## Результати перевірки в цьому середовищі
-
-У поточному середовищі кодова перевірка пройдена:
+Відкрий:
 
 ```text
-syntax ok
+http://127.0.0.1:8000/frontend/
 ```
 
-Docker Compose build, запуск контейнерів, API healthcheck, Redis, RabbitMQ і Locust RPS-тест виконані успішно 2026-05-18. Отриманий контрольний результат: приблизно `209 RPS` для `POST /purchase` і приблизно `253 RPS` агреговано по всіх endpoint-ах сценарію Locust.
+![Frontend RPS](docs/screenshots/frontend-rps.png)
 
-## Таблиця для запису власного результату
+### Ручна перевірка
 
-Після запуску Locust або `tests/load_test.py` заповни цю таблицю фактичними числами:
+Поля:
+
+- `User ID` — id користувача. Для тесту можна залишати будь-яке додатне число.
+- `Product ID` — id товару. У цьому проєкті основний тестовий товар має `product_id = 42`.
+- `Purchased count` — скільки одиниць товару купити за один запит.
+
+Кнопки:
+
+- `Купити` — виконує `POST /purchase`.
+- `Оновити залишок` — виконує `GET /products/42`.
+- `Скинути залишок` — виконує `POST /products/42/reset`.
+
+Перед RPS-тестом корисно поставити великий залишок, наприклад:
+
+```text
+Новий залишок = 20000
+```
+
+Якщо залишок буде малий, тест швидко почне отримувати `409 Conflict`, бо товар закінчиться.
+
+### RPS-тест у frontend
+
+Поля:
+
+- `RPS` — скільки запитів на секунду браузер намагається створити.
+- `Тривалість, сек` — скільки секунд триватиме тест.
+- `Конкурентність` — скільки запитів можуть одночасно очікувати відповідь.
+- `Product ID` — товар для тесту, зазвичай `42`.
+- `Purchased count` — скільки одиниць списувати за один запит.
+- `Timeout, мс` — скільки чекати відповідь перед тим, як вважати запит помилкою.
+
+Метрики:
+
+- `Статус` — `idle`, `running`, `draining`, `finished`, `stopped`.
+- `Заплановано` — скільки запитів браузер спробував створити.
+- `Завершено` — скільки запитів уже завершилися.
+- `Успішно` — скільки покупок отримали `200 OK`.
+- `409 Conflict` — скільки покупок не пройшли через нестачу товару.
+- `Timeout/Error` — скільки запитів завершилися timeout або іншою помилкою.
+- `Dropped` — скільки запитів браузер не зміг відправити через власні обмеження.
+- `Фактичний RPS` — реальна швидкість завершених запитів.
+- `In-flight` — скільки запитів зараз очікують відповідь.
+
+Frontend-тест зручний для навчання, але точніший benchmark краще робити через Locust.
+
+## Locust у браузері
+
+Відкрий:
+
+```text
+http://127.0.0.1:8089
+```
+
+Для тесту можна ввести:
+
+```text
+Number of users = 100
+Ramp up = 20
+Host = http://api:8000
+```
+
+Потім натисни `Start swarming`.
+
+![Locust Charts](docs/screenshots/locust-charts.png)
+
+### Що означають графіки Locust
+
+`Total Requests per Second`:
+
+- зелена лінія `RPS` показує, скільки запитів на секунду обробляється;
+- червона лінія `Failures/s` показує, скільки помилок за секунду;
+- якщо червона лінія біля нуля, тест проходить без помилок.
+
+`Response Times (ms)`:
+
+- `50th percentile` — типовий час відповіді для половини запитів;
+- `95th percentile` — 95% запитів були не повільніші за це значення;
+- якщо 95th percentile різко росте, система починає відповідати повільніше під навантаженням.
+
+`Number of Users`:
+
+- показує, скільки віртуальних користувачів Locust зараз створив;
+- на скріншоті видно, що кількість користувачів дійшла до 100 і трималась стабільно.
+
+`Status STOPPED` означає, що тест уже завершено, а графіки показують результат останнього запуску.
+
+## Locust у терміналі
+
+Команда, яку було запущено:
+
+```powershell
+docker compose run --rm -T locust -f /mnt/locust/locustfile.py --host http://api:8000 --headless -u 100 -r 20 -t 30s --only-summary
+```
+
+Що означають параметри:
 
 | Параметр | Значення |
 | --- | --- |
-| Дата тесту | |
-| Машина / ноутбук | |
-| Користувачі Locust або concurrency | |
-| Тривалість тесту | |
-| Цільовий RPS | |
-| Фактичний RPS | |
-| Успішні покупки | |
-| `409 Conflict` | |
-| Помилки / timeout | |
-| Average latency | |
-| P95 latency | |
-| Кінцевий stock | |
+| `--rm` | видалити тимчасовий контейнер Locust після завершення |
+| `-T` | не відкривати інтерактивний pseudo-TTY |
+| `-f /mnt/locust/locustfile.py` | файл сценарію Locust |
+| `--host http://api:8000` | тестувати API всередині docker compose мережі |
+| `--headless` | запуск без браузерного UI |
+| `-u 100` | 100 віртуальних користувачів |
+| `-r 20` | додавати 20 користувачів за секунду |
+| `-t 30s` | тест триває 30 секунд |
+| `--only-summary` | показати тільки фінальну таблицю |
+
+### Твій результат Locust
+
+```text
+Type     Name                          # reqs   # fails   Avg   Min   Max   Med   req/s
+GET      /products/{product_id}          1465   0(0.00%)   109     8   410   100    49.18
+POST     /purchase                      14734   0(0.00%)   132     7   517   120   494.62
+GET      /system/dependencies            1482   0(0.00%)   155    12   815   140    49.75
+Aggregated                              17681   0(0.00%)   132     7   815   120   593.55
+```
+
+Пояснення:
+
+- `# reqs` — скільки запитів зробив Locust.
+- `# fails` — скільки запитів завершилися помилкою.
+- `Avg` — середній час відповіді в мілісекундах.
+- `Min` — найшвидша відповідь.
+- `Max` — найповільніша відповідь.
+- `Med` — медіана, типовий час відповіді.
+- `req/s` — requests per second.
+
+Найважливіший результат:
+
+```text
+Aggregated: 17681 requests, 0 failures, 593.55 req/s
+```
+
+Це означає, що за 30 секунд сценарій виконав `17681` HTTP-запит, помилок не було, а загальна швидкість була приблизно `593.55 RPS`.
+
+Для основного endpoint:
+
+```text
+POST /purchase: 14734 requests, 0 failures, 494.62 req/s
+```
+
+Це означає, що саме покупки проходили зі швидкістю приблизно `495 RPS`, без помилок.
+
+### Percentiles
+
+```text
+POST /purchase:
+50%  = 120 ms
+95%  = 250 ms
+99%  = 380 ms
+100% = 520 ms
+```
+
+Це означає:
+
+- половина покупок відповідала до `120 ms`;
+- 95% покупок відповідали до `250 ms`;
+- 99% покупок відповідали до `380 ms`;
+- найповільніша покупка відповідала приблизно `520 ms`.
+
+### CPU warning
+
+Locust показав:
+
+```text
+CPU usage above 90%!
+```
+
+Це означає, що машина, яка генерує навантаження, була сильно завантажена. Через це результати можуть бути обмежені не тільки FastAPI/PostgreSQL, а ще й можливостями комп’ютера або Docker Desktop.
+
+Навчальний висновок: якщо CPU генератора навантаження вище 90%, то для дуже точного benchmark треба запускати Locust distributed або на окремій машині. Для навчального проєкту цей результат достатній: `0% failures` і майже `495 RPS` для покупок.
+
+## Redis Commander
+
+Відкрий:
+
+```text
+http://127.0.0.1:8081
+```
+
+![Redis Commander](docs/screenshots/redis-commander-last-purchase.png)
+
+На скріншоті видно ключ:
+
+```text
+store:purchases:last
+```
+
+Що означають поля:
+
+- `Key: store:purchases:last` — ключ Redis, у якому збережено останню успішну покупку.
+- `TTL: -1` — ключ не має автоматичного часу видалення.
+- `Type: String` — значення збережено як Redis string.
+- JSON у полі значення — дані останньої покупки.
+
+Приклад:
+
+```json
+{
+  "user_id": 105295,
+  "product_id": 42,
+  "purchased_count": 1,
+  "created_at": "2026-05-18T14:22:15.357034+00:00"
+}
+```
+
+Що це доводить:
+
+- API після успішної покупки реально записує дані в Redis.
+- Redis можна використовувати для швидких лічильників, кешу або короткого стану системи.
+- `store:purchases:last` допомагає швидко побачити, яка покупка була останньою.
+
+Другий важливий ключ:
+
+```text
+store:purchases:success
+```
+
+Це лічильник успішних покупок. Він збільшується після кожного успішного `POST /purchase`.
+
+## RabbitMQ Management UI
+
+Відкрий:
+
+```text
+http://127.0.0.1:15672
+```
+
+Логін:
+
+```text
+guest / guest
+```
+
+![RabbitMQ Queue](docs/screenshots/rabbitmq-queue.png)
+
+На скріншоті відкрита вкладка `Queues and Streams`.
+
+Що означають поля:
+
+| Поле | Значення для проєкту |
+| --- | --- |
+| `Virtual host /` | Стандартний простір RabbitMQ |
+| `Name purchase_events` | Черга, куди API записує події успішних покупок |
+| `Type classic` | Звичайна класична RabbitMQ queue |
+| `Features D` | Durable queue, черга переживає перезапуск RabbitMQ |
+| `State running` | Черга активна і працює |
+| `Ready 20,000` | 20 000 повідомлень лежать у черзі й готові до читання |
+| `Unacked 0` | Немає повідомлень, які consumer взяв, але ще не підтвердив |
+| `Total 20,000` | Усього в черзі 20 000 повідомлень |
+| `incoming 0.00/s` | Зараз нові повідомлення не надходять |
+| `deliver / get 0.00/s` | Зараз ніхто не читає повідомлення |
+| `ack 0.00/s` | Зараз ніхто не підтверджує обробку повідомлень |
+
+Висновок по RabbitMQ:
+
+API успішно створює події покупок і складає їх у чергу `purchase_events`. Оскільки в проєкті немає окремого consumer-сервісу, повідомлення накопичуються в `Ready`. Це нормально для навчального стенду: ми бачимо, що producer працює.
+
+У production зазвичай додають consumer, який читає такі події і робить додаткову роботу: надсилає email, пише аналітику, оновлює CRM або формує чек.
+
+## Консольний Python RPS-тест
+
+Окрім Locust, є тест:
+
+```powershell
+python tests\load_test.py --base-url http://127.0.0.1:8000 --rps 500 --duration 15 --concurrency 50 --timeout 5
+```
+
+Перед тестом бажано скинути залишок:
+
+```powershell
+$body = @{ stock = 20000 } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/products/42/reset" -Method Post -ContentType "application/json" -Body $body
+```
+
+Цей тест корисний, коли треба швидко перевірити API без Locust UI.
+
+## Корисні команди керування проєктом
+
+### Запуск
+
+```powershell
+docker compose build
+docker compose up -d
+docker compose ps
+```
+
+### Перезапуск після змін у коді
+
+```powershell
+docker compose up --build -d
+```
+
+### Подивитися логи
+
+Усі сервіси:
+
+```powershell
+docker compose logs --tail=80
+```
+
+Тільки API:
+
+```powershell
+docker compose logs --tail=80 api
+```
+
+API, Redis і RabbitMQ:
+
+```powershell
+docker compose logs --tail=80 api redis rabbitmq
+```
+
+### Зупинити проєкт без видалення даних
+
+```powershell
+docker compose down
+```
+
+Це зупиняє контейнери, але volume з PostgreSQL, Redis і RabbitMQ залишаються.
+
+### Повністю зупинити і очистити дані
+
+```powershell
+docker compose down -v
+```
+
+Це видаляє volumes:
+
+- `postgres_data`;
+- `redis_data`;
+- `rabbitmq_data`.
+
+Після цього при наступному запуску база PostgreSQL створиться заново з `db/init.sql`.
+
+### Зупинити тільки один сервіс
+
+```powershell
+docker compose stop locust
+docker compose stop redis-commander
+docker compose stop rabbitmq
+```
+
+### Запустити тільки один сервіс назад
+
+```powershell
+docker compose up -d locust
+docker compose up -d redis-commander
+docker compose up -d rabbitmq
+```
+
+### Перезапустити API
+
+```powershell
+docker compose restart api
+```
+
+### Перевірити health API
+
+```powershell
+curl http://127.0.0.1:8000/health
+```
+
+### Перевірити залежності API
+
+```powershell
+curl http://127.0.0.1:8000/system/dependencies
+```
+
+### Подивитися товар
+
+```powershell
+curl http://127.0.0.1:8000/products/42
+```
+
+### Скинути залишок товару
+
+```powershell
+$body = @{ stock = 20000 } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/products/42/reset" -Method Post -ContentType "application/json" -Body $body
+```
+
+### Зайти в PostgreSQL
+
+```powershell
+docker compose exec postgres psql -U store_user -d store_db
+```
+
+Подивитися товари:
+
+```sql
+SELECT * FROM products ORDER BY product_id;
+```
+
+### Перевірити Redis через CLI
+
+```powershell
+docker compose exec redis redis-cli ping
+docker compose exec redis redis-cli keys "store:*"
+docker compose exec redis redis-cli get store:purchases:success
+docker compose exec redis redis-cli get store:purchases:last
+```
+
+Очистити Redis:
+
+```powershell
+docker compose exec redis redis-cli FLUSHDB
+```
+
+### Перевірити RabbitMQ container
+
+```powershell
+docker compose exec rabbitmq rabbitmq-diagnostics ping
+docker compose exec rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers
+```
+
+Очистити чергу `purchase_events`:
+
+```powershell
+docker compose exec rabbitmq rabbitmqctl purge_queue purchase_events
+```
+
+### Запустити Locust headless
+
+```powershell
+docker compose run --rm -T locust -f /mnt/locust/locustfile.py --host http://api:8000 --headless -u 100 -r 20 -t 30s --only-summary
+```
+
+### Зупинити завислий тест
+
+У терміналі натисни:
+
+```text
+Ctrl + C
+```
+
+Якщо після цього залишився тимчасовий контейнер:
+
+```powershell
+docker compose ps -a
+docker compose down
+```
+
+## Коли щось не працює
+
+1. Перевір, що Docker Desktop запущений.
+2. Перевір контейнери:
+
+```powershell
+docker compose ps
+```
+
+3. Перевір API:
+
+```powershell
+curl http://127.0.0.1:8000/health
+```
+
+4. Перевір Redis і RabbitMQ:
+
+```powershell
+curl http://127.0.0.1:8000/system/dependencies
+```
+
+5. Подивись логи:
+
+```powershell
+docker compose logs --tail=80 api redis rabbitmq
+```
+
+6. Якщо треба повністю почати заново:
+
+```powershell
+docker compose down -v
+docker compose up --build -d
+```
 
 ## Навчальний висновок
 
-Проєкт демонструє повний маленький backend-стенд: API приймає покупки, PostgreSQL гарантує коректний залишок товару, Redis показує швидкі лічильники, RabbitMQ зберігає події, а Locust дозволяє побачити RPS на графіках.
+Цей проєкт показав повний шлях backend-розробника: написати API, підключити базу, запустити все через Docker, додати Redis і RabbitMQ, перевірити систему через frontend і Locust, а потім правильно прочитати результати.
 
-Для учня головне зрозуміти не тільки “як запустити”, а й “що саме ми вимірюємо”. Якщо RPS росте, але latency і помилки теж різко ростуть, система вже перевантажена. Якщо є багато `409 Conflict`, це може бути нормальним результатом, коли товар закінчився. Найважливіше, що після будь-якого навантаження складський залишок не має стати меншим за нуль.
+Головні висновки:
+
+- PostgreSQL відповідає за коректний залишок товару.
+- FastAPI приймає покупки і повертає зрозумілі HTTP-відповіді.
+- Redis швидко показує лічильники і останню покупку.
+- RabbitMQ накопичує події покупок для майбутньої обробки.
+- Locust показує, скільки RPS витримує система і як росте latency.
+- `0% failures` у твоєму Locust-тесті означає, що API стабільно відповідав під заданим навантаженням.
+- Попередження CPU вище 90% означає, що навантаження вже впирається у ресурси комп’ютера.
+- Найважливіше: після навантаження `stock` не має ставати від’ємним.
+
+Завдяки цьому проєкту я навчилась не тільки запускати backend, а й аналізувати його поведінку під навантаженням: дивитися RPS, latency, failures, черги RabbitMQ, ключі Redis і робити технічний висновок по роботі системи.
