@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.db import create_pool, get_connection
+from app.integrations import Integrations
 
 
 class PurchaseRequest(BaseModel):
@@ -54,10 +55,13 @@ async def disable_frontend_cache(request: Request, call_next):
 @app.on_event("startup")
 async def startup() -> None:
     app.state.db_pool = await create_pool()
+    app.state.integrations = Integrations(settings)
+    await app.state.integrations.connect()
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    await app.state.integrations.close()
     await app.state.db_pool.close()
 
 
@@ -70,6 +74,12 @@ async def root() -> FileResponse:
 async def health(connection: asyncpg.Connection = Depends(get_connection)) -> dict[str, str]:
     await connection.fetchval("SELECT 1")
     return {"status": "ok"}
+
+
+@app.get("/system/dependencies")
+async def dependencies_status(request: Request) -> dict[str, object]:
+    integrations: Integrations = request.app.state.integrations
+    return await integrations.status()
 
 
 @app.get("/products/{product_id}", response_model=ProductResponse)
@@ -114,6 +124,7 @@ async def reset_product_stock(
 @app.post("/purchase", response_model=PurchaseResponse)
 async def purchase(
     payload: PurchaseRequest,
+    request: Request,
     connection: asyncpg.Connection = Depends(get_connection),
 ) -> PurchaseResponse:
     updated_product_id = await connection.fetchval(
@@ -129,6 +140,11 @@ async def purchase(
     )
 
     if updated_product_id is not None:
+        integrations: Integrations = request.app.state.integrations
+        try:
+            await integrations.publish_purchase(payload.model_dump())
+        except Exception:
+            pass
         return PurchaseResponse(status="success")
 
     exists = await connection.fetchval(

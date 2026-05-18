@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <title>Redis and RabbitMQ status</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #101418;
+        color: #f5f7fb;
+      }
+
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 48px;
+      }
+
+      h1 {
+        font-size: 34px;
+        margin: 0 0 12px;
+      }
+
+      p {
+        color: #b8c0cc;
+        font-size: 18px;
+        margin: 0 0 32px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 24px;
+      }
+
+      .card {
+        border: 1px solid #2c3542;
+        border-radius: 8px;
+        background: #171d24;
+        padding: 28px;
+      }
+
+      .label {
+        color: #7dd3fc;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .value {
+        font-size: 54px;
+        font-weight: 800;
+        margin: 18px 0 8px;
+      }
+
+      .ok {
+        color: #40c463;
+      }
+
+      .hint {
+        color: #b8c0cc;
+        font-size: 16px;
+      }
+
+      .bar {
+        height: 18px;
+        margin-top: 24px;
+        border-radius: 999px;
+        background: #2c3542;
+        overflow: hidden;
+      }
+
+      .bar span {
+        display: block;
+        height: 100%;
+        background: linear-gradient(90deg, #40c463, #7dd3fc);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Redis and RabbitMQ after RPS checks</h1>
+      <p>Snapshot from local API checks on 2026-05-18 after Docker Compose and Locust runs.</p>
+      <section class="grid">
+        <article class="card">
+          <div class="label">Redis</div>
+          <div class="value ok">12992</div>
+          <div class="hint">store:purchases:success</div>
+          <div class="bar"><span style="width: 100%"></span></div>
+        </article>
+        <article class="card">
+          <div class="label">RabbitMQ queue</div>
+          <div class="value ok">12992</div>
+          <div class="hint">messages_ready in purchase_events, consumers: 0</div>
+          <div class="bar"><span style="width: 100%"></span></div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

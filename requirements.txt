@@ -1,4 +1,6 @@
 asyncpg==0.31.0
+aio-pika==9.4.3
 fastapi==0.111.0
 pydantic-settings==2.3.4
+redis==5.0.8
 uvicorn[standard]==0.30.1

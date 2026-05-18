@@ -4,6 +4,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     database_url: str
+    redis_url: str = "redis://redis:6379/0"
+    rabbitmq_url: str = "amqp://guest:guest@rabbitmq:5672/"
+    rabbitmq_purchase_queue: str = "purchase_events"
     cors_origins: str = "*"
     db_pool_min_size: int = 5
     db_pool_max_size: int = 50
