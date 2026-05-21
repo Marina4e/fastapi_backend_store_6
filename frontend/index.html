@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Store Load API</title>
-    <link rel="stylesheet" href="/frontend/styles.css?v=3" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=6" />
   </head>
   <body>
     <main class="shell">
@@ -13,22 +13,50 @@
           <div>
             <p class="eyebrow">FastAPI + PostgreSQL</p>
             <h1>Тест покупки товару</h1>
+            <p class="subtitle">Сторінка для ручної покупки, скидання складу і навчального RPS-тесту з браузера.</p>
           </div>
           <span id="apiStatus" class="status">checking</span>
         </div>
 
+        <div class="runtime">
+          <div>
+            <span>API workers</span>
+            <strong id="apiWorkers">-</strong>
+          </div>
+          <p>
+            Worker-и налаштовуються в <code>.env</code> через <code>API_WORKERS</code>.
+            Після зміни потрібен перезапуск: <code>docker compose up --build -d</code>.
+          </p>
+        </div>
+
+        <div class="guide">
+          <div>
+            <strong>1. Скинь залишок</strong>
+            <span>Для довгого тесту постав 20000 або 50000. Для перевірки зупинки постав 5.</span>
+          </div>
+          <div>
+            <strong>2. Запусти тест</strong>
+            <span>Почни з пресету “Безпечний тест”. 1000 RPS краще перевіряти через Locust.</span>
+          </div>
+          <div>
+            <strong>3. Дивись результат</strong>
+            <span>Якщо зʼявився 409 Conflict, товар закінчився і тест зупиниться.</span>
+          </div>
+        </div>
+
         <h2>Ручна перевірка</h2>
+        <p class="hint">Спочатку перевір товар вручну: скинь залишок, натисни купити, онови залишок.</p>
         <form id="purchaseForm" class="grid">
           <label>
-            User ID
+            User ID <small>будь-яке додатне число</small>
             <input name="user_id" type="number" min="1" value="12345" required />
           </label>
           <label>
-            Product ID
+            Product ID <small>тестовий товар: 42</small>
             <input name="product_id" type="number" min="1" value="42" required />
           </label>
           <label>
-            Purchased count
+            Purchased count <small>скільки списати</small>
             <input name="purchased_count" type="number" min="1" value="2" required />
           </label>
           <button type="submit">Купити</button>
@@ -52,30 +80,27 @@
         </div>
 
         <h2>RPS-тест з браузера</h2>
+        <p class="hint">
+          Це навчальний тест у браузері. Для справжнього benchmark використовуй Locust або <code>tests/load_test.py</code>.
+          Тест купує товар <code>product_id</code> з ручної форми і списує по 1 одиниці за запит.
+        </p>
+        <div class="preset-row">
+          <button id="safePreset" type="button">Безпечний тест</button>
+          <button id="mediumPreset" type="button">Середній тест</button>
+          <button id="hardPreset" type="button">Сильний тест</button>
+        </div>
         <div id="loadTestForm" class="grid load-grid">
           <label>
-            RPS
+            RPS <small>скільки запитів/сек хочемо створити</small>
             <input id="rpsInput" type="number" min="1" max="2000" value="100" required />
           </label>
           <label>
-            Тривалість, сек
-            <input id="durationInput" type="number" min="1" max="60" value="5" required />
+            Тривалість, сек <small>скільки секунд працює тест</small>
+            <input id="durationInput" type="number" min="1" max="60" value="10" required />
           </label>
           <label>
-            Конкурентність
-            <input id="concurrencyInput" type="number" min="1" max="500" value="50" required />
-          </label>
-          <label>
-            Product ID
-            <input id="loadProductIdInput" type="number" min="1" value="42" required />
-          </label>
-          <label>
-            Purchased count
-            <input id="loadPurchasedCountInput" type="number" min="1" value="1" required />
-          </label>
-          <label>
-            Timeout, мс
-            <input id="timeoutInput" type="number" min="100" max="10000" value="2000" required />
+            Конкурентність <small>скільки запитів одночасно</small>
+            <input id="concurrencyInput" type="number" min="1" max="500" value="25" required />
           </label>
           <button id="startLoadTest" type="button">Запустити RPS-тест</button>
           <button id="stopLoadTest" type="button" disabled>Зупинити тест</button>
@@ -87,7 +112,11 @@
             <strong id="loadStatus">idle</strong>
           </div>
           <div>
-            <span>Заплановано</span>
+            <span>Ціль запитів</span>
+            <strong id="targetCount">0</strong>
+          </div>
+          <div>
+            <span>Відправлено</span>
             <strong id="scheduledCount">0</strong>
           </div>
           <div>
@@ -119,10 +148,14 @@
             <strong id="inFlightCount">0</strong>
           </div>
         </div>
+        <div id="loadExplanation" class="explanation">
+          Якщо <strong>Dropped</strong> велике, браузер не встигає створити заданий RPS. Це не обов'язково помилка backend.
+          Якщо тест закінчився за 1-2 секунди, найчастіша причина - малий залишок товару.
+        </div>
         <pre id="loadOutput">{}</pre>
       </section>
     </main>
 
-    <script src="/frontend/script.js?v=4"></script>
+    <script src="/frontend/script.js?v=7"></script>
   </body>
 </html>

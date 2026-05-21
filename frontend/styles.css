@@ -52,11 +52,24 @@ h1 {
   line-height: 1.15;
 }
 
+.subtitle,
+.hint {
+  color: #607089;
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 8px 0 0;
+}
+
 h2 {
   margin: 28px 0 14px;
   color: #25324a;
   font-size: 18px;
   line-height: 1.2;
+}
+
+code {
+  color: #25324a;
+  font-weight: 800;
 }
 
 .status {
@@ -88,12 +101,78 @@ h2 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.runtime {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #d9e0ea;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.runtime span {
+  display: block;
+  color: #607089;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.runtime strong {
+  color: #172033;
+  font-size: 26px;
+}
+
+.runtime p {
+  margin: 0;
+  color: #43516a;
+  line-height: 1.45;
+}
+
+.guide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.guide div {
+  border: 1px solid #d9e0ea;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.guide strong,
+.guide span {
+  display: block;
+}
+
+.guide strong {
+  color: #25324a;
+  font-size: 14px;
+}
+
+.guide span {
+  color: #607089;
+  font-size: 13px;
+  line-height: 1.4;
+  margin-top: 5px;
+}
+
 label {
   display: grid;
   gap: 7px;
   color: #43516a;
   font-size: 14px;
   font-weight: 700;
+}
+
+label small {
+  color: #607089;
+  font-weight: 600;
 }
 
 input {
@@ -191,6 +270,17 @@ button:disabled {
   gap: 12px;
 }
 
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.preset-row button {
+  background: #25324a;
+}
+
 pre {
   min-height: 160px;
   overflow: auto;
@@ -201,6 +291,16 @@ pre {
   margin: 0;
   padding: 16px;
   white-space: pre-wrap;
+}
+
+.explanation {
+  border: 1px solid #d9e0ea;
+  border-radius: 6px;
+  background: #fffaf0;
+  color: #5f4300;
+  line-height: 1.45;
+  margin-bottom: 12px;
+  padding: 12px;
 }
 
 .metrics {
@@ -238,8 +338,10 @@ pre {
 
   .header,
   .grid,
+  .runtime,
   .reset-row,
-  .metrics {
+  .metrics,
+  .guide {
     grid-template-columns: 1fr;
   }
 

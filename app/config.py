@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     cors_origins: str = "*"
     db_pool_min_size: int = 5
     db_pool_max_size: int = 50
+    api_workers: int = 5
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
@@ -22,4 +23,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings() # type: ignore

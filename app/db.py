@@ -19,4 +19,4 @@ async def create_pool() -> asyncpg.Pool:
 async def get_connection(request: Request) -> AsyncIterator[asyncpg.Connection]:
     pool: asyncpg.Pool = request.app.state.db_pool
     async with pool.acquire() as connection:
-        yield connection
+        yield connection # type: ignore

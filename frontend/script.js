@@ -6,21 +6,23 @@ const resetStockButton = document.querySelector("#resetStock");
 const resetStockValue = document.querySelector("#resetStockValue");
 const messageBox = document.querySelector("#message");
 const currentStock = document.querySelector("#currentStock");
+const apiWorkers = document.querySelector("#apiWorkers");
 const startLoadTestButton = document.querySelector("#startLoadTest");
 const stopLoadTestButton = document.querySelector("#stopLoadTest");
+const safePresetButton = document.querySelector("#safePreset");
+const mediumPresetButton = document.querySelector("#mediumPreset");
+const hardPresetButton = document.querySelector("#hardPreset");
 const loadOutput = document.querySelector("#loadOutput");
 
 const loadInputs = {
   rps: document.querySelector("#rpsInput"),
   duration: document.querySelector("#durationInput"),
   concurrency: document.querySelector("#concurrencyInput"),
-  productId: document.querySelector("#loadProductIdInput"),
-  purchasedCount: document.querySelector("#loadPurchasedCountInput"),
-  timeoutMs: document.querySelector("#timeoutInput"),
 };
 
 const metricElements = {
   status: document.querySelector("#loadStatus"),
+  target: document.querySelector("#targetCount"),
   scheduled: document.querySelector("#scheduledCount"),
   completed: document.querySelector("#completedCount"),
   success: document.querySelector("#successCount"),
@@ -77,6 +79,15 @@ async function checkHealth() {
     statusBadge.textContent = "offline";
     statusBadge.className = "status error";
     setMessage("API недоступний. Перевір Docker і /health.", "error");
+  }
+}
+
+async function loadRuntimeInfo() {
+  try {
+    const runtime = await requestJson("/system/runtime");
+    apiWorkers.textContent = runtime.api_workers;
+  } catch (error) {
+    apiWorkers.textContent = "?";
   }
 }
 
@@ -155,6 +166,7 @@ function updateMetrics(state) {
   const actualRps = elapsedSeconds > 0 ? completed / elapsedSeconds : 0;
 
   metricElements.status.textContent = state.status;
+  metricElements.target.textContent = state.target_requests;
   metricElements.scheduled.textContent = state.scheduled;
   metricElements.completed.textContent = completed;
   metricElements.success.textContent = state.success;
@@ -168,6 +180,7 @@ function updateMetrics(state) {
     status: state.status,
     elapsed_seconds: Number(elapsedSeconds.toFixed(2)),
     scheduled_requests: state.scheduled,
+    target_requests: state.target_requests,
     completed_requests: completed,
     successful_purchases: state.success,
     stock_conflicts: state.conflict,
@@ -176,7 +189,7 @@ function updateMetrics(state) {
     in_flight: state.inFlight,
     actual_rps: Number(actualRps.toFixed(1)),
     target: state.target,
-    note: "Це браузерний навчальний RPS-тест. Для точнішого benchmark використовуй tests/load_test.py.",
+    note: "Це браузерний навчальний RPS-тест. Якщо Dropped велике, браузер не встигає створити цільовий RPS. Для точнішого benchmark використовуй Locust або tests/load_test.py.",
   });
 }
 
@@ -221,13 +234,34 @@ async function runLoadTest() {
   const rps = Number(loadInputs.rps.value);
   const duration = Number(loadInputs.duration.value);
   const concurrency = Number(loadInputs.concurrency.value);
-  const productId = Number(loadInputs.productId.value);
-  const purchasedCount = Number(loadInputs.purchasedCount.value);
-  const timeoutMs = Number(loadInputs.timeoutMs.value);
+  const productId = getPurchasePayload().product_id;
+  const purchasedCount = 1;
+  const timeoutMs = 5000;
   const values = [rps, duration, concurrency, productId, purchasedCount, timeoutMs];
+  const targetRequests = Math.round(rps * duration);
 
   if (values.some((value) => !Number.isFinite(value) || value <= 0)) {
     setMessage("Усі поля RPS-тесту мають бути числами більше 0.", "error");
+    return;
+  }
+
+  let initialMessage = `RPS-тест запущено: ${rps} RPS на ${duration} секунд.`;
+  try {
+    const product = await requestJson(`/products/${productId}`);
+    currentStock.textContent = product.stock;
+    if (product.stock <= 0) {
+      setMessage("RPS-тест не запущено: залишок товару 0. Спочатку натисни “Скинути залишок”.", "error");
+      show(product);
+      return;
+    }
+    if (product.stock < targetRequests * purchasedCount) {
+      initialMessage =
+        `RPS-тест запущено, але stock=${product.stock} менший за ціль ${targetRequests}. ` +
+        "Товар закінчиться раніше, і тест зупиниться після 409 Conflict.";
+    }
+  } catch (error) {
+    setMessage("Не вдалося перевірити залишок перед RPS-тестом. Перевір product_id або API.", "error");
+    show(error);
     return;
   }
 
@@ -241,6 +275,7 @@ async function runLoadTest() {
     dropped: 0,
     inFlight: 0,
     stopRequested: false,
+    target_requests: targetRequests,
     target: {
       rps,
       duration,
@@ -248,13 +283,15 @@ async function runLoadTest() {
       product_id: productId,
       purchased_count: purchasedCount,
       timeout_ms: timeoutMs,
+      expected_stock_spend: targetRequests * purchasedCount,
+      source: "browser",
     },
   };
 
   activeLoadTest = state;
   startLoadTestButton.disabled = true;
   stopLoadTestButton.disabled = false;
-  setMessage(`RPS-тест запущено: ${rps} RPS на ${duration} секунд.`, "ok");
+  setMessage(initialMessage, "ok");
   updateMetrics(state);
 
   const stopAt = performance.now() + duration * 1000;
@@ -282,6 +319,11 @@ async function runLoadTest() {
       );
     } else {
       state.dropped += 1;
+    }
+
+    if (state.conflict > 0) {
+      state.stopRequested = true;
+      setMessage("Тест зупиняється: товар закінчився, API повернув 409 Conflict.", "error");
     }
 
     nextRequestAt += intervalMs;
@@ -316,5 +358,17 @@ stopLoadTestButton.addEventListener("click", () => {
   }
 });
 
+function applyPreset(rps, duration, concurrency) {
+  loadInputs.rps.value = rps;
+  loadInputs.duration.value = duration;
+  loadInputs.concurrency.value = concurrency;
+  setMessage(`Обрано пресет: ${rps} RPS, ${duration} сек, concurrency ${concurrency}.`, "ok");
+}
+
+safePresetButton.addEventListener("click", () => applyPreset(50, 10, 10));
+mediumPresetButton.addEventListener("click", () => applyPreset(100, 10, 25));
+hardPresetButton.addEventListener("click", () => applyPreset(300, 15, 50));
+
 checkHealth();
+loadRuntimeInfo();
 refreshStock("Початковий залишок завантажено.");
