@@ -9,10 +9,14 @@ class Settings(BaseSettings):
     rabbitmq_purchase_queue: str = "purchase_events"
     cors_origins: str = "*"
     db_pool_min_size: int = 5
-    db_pool_max_size: int = 50
-    api_workers: int = 5
+    db_pool_max_size: int = 20
+    api_workers: int = 3
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     @property
     def allowed_origins(self) -> list[str]:

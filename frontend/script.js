@@ -34,6 +34,9 @@ const metricElements = {
 };
 
 let activeLoadTest = null;
+let lastMetricsRenderAt = 0;
+let pendingMetricsRender = null;
+let metricsRenderTimer = null;
 
 function show(value) {
   output.textContent = JSON.stringify(value, null, 2);
@@ -160,8 +163,24 @@ resetStockButton.addEventListener("click", async () => {
   }
 });
 
-function updateMetrics(state) {
-  const elapsedSeconds = state.startedAt ? (performance.now() - state.startedAt) / 1000 : 0;
+function updateMetrics(state, force = false) {
+  const now = performance.now();
+  if (!force && now - lastMetricsRenderAt < 250) {
+    pendingMetricsRender = state;
+    if (!metricsRenderTimer) {
+      metricsRenderTimer = window.setTimeout(() => {
+        metricsRenderTimer = null;
+        if (pendingMetricsRender) {
+          updateMetrics(pendingMetricsRender, true);
+          pendingMetricsRender = null;
+        }
+      }, 250);
+    }
+    return;
+  }
+
+  lastMetricsRenderAt = now;
+  const elapsedSeconds = state.startedAt ? (now - state.startedAt) / 1000 : 0;
   const completed = state.success + state.conflict + state.errors;
   const actualRps = elapsedSeconds > 0 ? completed / elapsedSeconds : 0;
 
@@ -292,7 +311,7 @@ async function runLoadTest() {
   startLoadTestButton.disabled = true;
   stopLoadTestButton.disabled = false;
   setMessage(initialMessage, "ok");
-  updateMetrics(state);
+  updateMetrics(state, true);
 
   const stopAt = performance.now() + duration * 1000;
   const intervalMs = 1000 / rps;
@@ -332,7 +351,7 @@ async function runLoadTest() {
 
   state.status = "draining";
   setMessage("RPS-тест завершується, чекаємо останні відповіді.", "ok");
-  updateMetrics(state);
+  updateMetrics(state, true);
 
   const drainUntil = performance.now() + timeoutMs + 500;
   while (state.inFlight > 0 && performance.now() < drainUntil) {
@@ -340,7 +359,12 @@ async function runLoadTest() {
   }
 
   state.status = state.stopRequested ? "stopped" : "finished";
-  updateMetrics(state);
+  updateMetrics(state, true);
+  if (metricsRenderTimer) {
+    window.clearTimeout(metricsRenderTimer);
+    metricsRenderTimer = null;
+    pendingMetricsRender = null;
+  }
   setMessage(state.stopRequested ? "RPS-тест зупинено." : "RPS-тест завершено.", "ok");
   await refreshStock("Залишок після RPS-тесту оновлено.");
 

@@ -33,7 +33,7 @@ class Integrations:
             if last_error is not None:
                 raise last_error
 
-        self.rabbitmq_channel = await self.rabbitmq.channel()
+        self.rabbitmq_channel = await self.rabbitmq.channel(publisher_confirms=False)
         await self.rabbitmq_channel.declare_queue(
             self.settings.rabbitmq_purchase_queue,
             durable=True,
@@ -48,13 +48,16 @@ class Integrations:
     async def publish_purchase(self, payload: dict[str, Any]) -> None:
         if self.redis is not None:
             now = datetime.now(UTC).isoformat()
-            pipe = self.redis.pipeline()
+            pipe = self.redis.pipeline(transaction=False)
             pipe.incr("store:purchases:success")
-            pipe.set("store:purchases:last", json.dumps({**payload, "created_at": now}))
+            pipe.set(
+                "store:purchases:last",
+                json.dumps({**payload, "created_at": now}, separators=(",", ":")),
+            )
             await pipe.execute()
 
         if self.rabbitmq_channel is not None:
-            body = json.dumps(payload).encode("utf-8")
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
             await self.rabbitmq_channel.default_exchange.publish(
                 aio_pika.Message(
                     body=body,
