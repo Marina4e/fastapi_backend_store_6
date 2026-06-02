@@ -84,6 +84,11 @@ def print_summary(args: argparse.Namespace, result: Result, elapsed: float) -> N
     success_rps = result.success / elapsed if elapsed else 0.0
     avg_latency = sum(result.latencies_ms) / len(result.latencies_ms) if result.latencies_ms else 0.0
     p95_latency = percentile(result.latencies_ms, 95)
+    avg_latency_seconds = avg_latency / 1000
+    p95_latency_seconds = p95_latency / 1000
+    estimated_rps_by_avg_latency = args.concurrency / avg_latency_seconds if avg_latency_seconds else 0.0
+    estimated_rps_by_p95_latency = args.concurrency / p95_latency_seconds if p95_latency_seconds else 0.0
+    estimated_required_concurrency = args.rps * avg_latency_seconds
     error_rate = (result.failed / result.completed * 100) if result.completed else 0.0
     drop_rate = (result.dropped / result.scheduled * 100) if result.scheduled else 0.0
 
@@ -116,6 +121,12 @@ def print_summary(args: argparse.Namespace, result: Result, elapsed: float) -> N
     print(f"Success RPS:             {success_rps:.2f}")
     print(f"Average latency:         {avg_latency:.2f} ms")
     print(f"P95 latency:             {p95_latency:.2f} ms")
+    print("-" * 56)
+    print("Concurrency math:")
+    print(f"  Current concurrency:   {args.concurrency}")
+    print(f"  Target RPS needs about {estimated_required_concurrency:.0f} concurrent requests at avg latency.")
+    print(f"  Current avg-latency cap: ~{estimated_rps_by_avg_latency:.2f} RPS")
+    print(f"  Current p95-latency cap: ~{estimated_rps_by_p95_latency:.2f} RPS")
 
     if result.status_codes:
         print("-" * 56)
@@ -134,6 +145,7 @@ def print_summary(args: argparse.Namespace, result: Result, elapsed: float) -> N
         print("Note: 409 Conflict is expected when stock is not enough.")
     if result.dropped:
         print("Note: dropped requests mean the tester could not feed the target RPS.")
+        print("      If latency is high, increase --concurrency/--queue-size or lower --rps.")
     if result.timed_out:
         print("Note: timeouts usually mean the API/DB/PC could not answer within --timeout.")
     if result.interrupted:

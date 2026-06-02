@@ -181,11 +181,100 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/products/42/reset" -Method Post -C
 python tests\load_test.py --base-url http://127.0.0.1:8000 --rps 500 --duration 15 --concurrency 50 --timeout 5
 ```
 
+### Як читати результат `tests/load_test.py`
+
+Твій результат:
+
+```text
+Target RPS:              500.00
+Requested duration:      15.00s
+Real duration:           25.38s
+Target requests:         7500
+Scheduled requests:      7497
+Sent to API:             2289
+Completed requests:      2239
+Dropped by tester:       5258 (70.13%)
+Actual RPS:              88.23
+Average latency:         557.86 ms
+P95 latency:             1802.65 ms
+Client error types:
+  ReadError: 5
+  ReadTimeout: 1
+```
+
+Це правильний і логічний результат для таких параметрів. `--rps 500` означає не “backend точно обробить 500 RPS”, а “тестер буде намагатися створити 500 запитів на секунду”. Якщо tester, API, база або локальний Docker не встигають, фактичний RPS буде нижчим.
+
+Найважливіша формула:
+
+```text
+максимальний RPS приблизно = concurrency / latency_seconds
+```
+
+У твоєму запуску:
+
+```text
+concurrency = 50
+average latency = 557.86 ms = 0.55786 s
+50 / 0.55786 = 89.6 RPS
+```
+
+Саме тому `Actual RPS = 88.23`. Це майже ідеально збігається з математичною межею. Тест не “обманює” і не “не дотягує просто так”: при 50 одночасних запитах і відповіді приблизно 0.56 секунди він фізично не може стабільно завершувати 500 запитів за секунду.
+
+Що означають поля:
+
+| Поле | Пояснення |
+| --- | --- |
+| `Target RPS 500` | Ціль, яку тест намагався створити |
+| `Target requests 7500` | 500 RPS * 15 секунд |
+| `Scheduled requests 7497` | Тестер майже всі запити запланував |
+| `Sent to API 2289` | До API реально потрапила тільки частина запитів |
+| `Dropped 5258` | Черга тестера переповнилась, бо 50 worker-ів не встигали відправляти 500 RPS |
+| `Completed 2239` | Стільки запитів реально завершилися відповіддю або помилкою |
+| `Actual RPS 88.23` | Реальна швидкість завершених запитів |
+| `Average latency 557.86 ms` | Середній час відповіді API |
+| `P95 1802.65 ms` | 95% відповідей були не повільніші за 1.8 секунди |
+| `ReadTimeout/ReadError` | Частина запитів не дочекалась стабільної відповіді від API/Nginx/Docker |
+
+Чому `Real duration` став `25.38s`, хоча тест був на `15s`: після активних 15 секунд скрипт ще чекав, поки завершаться запити в черзі. За замовчуванням `--drain-timeout=10`, тому загальна тривалість стала приблизно `15 + 10` секунд.
+
+Якщо хочеш наблизитися до `500 RPS`, треба або зменшити latency, або збільшити concurrency. При твоїй середній latency потрібно приблизно:
+
+```text
+500 RPS * 0.55786 s = 279 concurrent requests
+```
+
+Приклад більш агресивної команди:
+
+```powershell
+python tests\load_test.py --base-url http://127.0.0.1:8000 --rps 500 --duration 15 --concurrency 300 --queue-size 10000 --timeout 10
+```
+
+Але це не гарантія 500 RPS. Якщо PostgreSQL, FastAPI worker-и, Nginx або Docker Desktop не витримають, latency виросте ще більше, і фактичний RPS знову буде нижчим. Для чесного висновку краще тестувати сходинками: `100 RPS`, `200 RPS`, `300 RPS`, `500 RPS`.
+
 Запустити Locust headless:
 
 ```powershell
-docker compose run --rm -T locust -f /mnt/locust/locustfile.py --host http://api:8000 --headless -u 100 -r 20 -t 30s --only-summary
+docker compose run --rm -T --no-deps locust -f /mnt/locust/locustfile.py --host http://api:8000 --headless -u 100 -r 20 -t 30s --stop-timeout 5
 ```
+
+Якщо команда Locust виглядає так, ніби вона зависла, найчастіше причина в `--only-summary`: з цим параметром Locust майже нічого не друкує під час тесту і показує тільки фінальну таблицю. Тому в README команда оновлена без `--only-summary`, щоб під час 30 секунд було видно прогрес.
+
+`--no-deps` означає: не створювати заново залежності `postgres`, `redis`, `rabbitmq`, `api`, якщо вони вже запущені через `docker compose up -d`. Це прибирає зайвий етап `[+] create ...` і робить headless-запуск зрозумілішим.
+
+Якщо Locust все одно не завершується:
+
+```powershell
+docker compose ps
+docker compose logs --tail=80 locust
+```
+
+Або відкрий UI Locust:
+
+```text
+http://127.0.0.1:8089
+```
+
+У цьому проєкті `locust` уже запускається як окремий UI-сервіс, тому для ручного тесту можна просто відкрити `8089`, а headless-команду використовувати тільки для одноразового console benchmark.
 
 ## Практичний висновок
 
@@ -378,11 +467,100 @@ Run the Python load test:
 python tests\load_test.py --base-url http://127.0.0.1:8000 --rps 500 --duration 15 --concurrency 50 --timeout 5
 ```
 
+### How to Read `tests/load_test.py` Results
+
+Your result:
+
+```text
+Target RPS:              500.00
+Requested duration:      15.00s
+Real duration:           25.38s
+Target requests:         7500
+Scheduled requests:      7497
+Sent to API:             2289
+Completed requests:      2239
+Dropped by tester:       5258 (70.13%)
+Actual RPS:              88.23
+Average latency:         557.86 ms
+P95 latency:             1802.65 ms
+Client error types:
+  ReadError: 5
+  ReadTimeout: 1
+```
+
+This is a valid and logical result for these settings. `--rps 500` does not mean “the backend will definitely process 500 RPS”. It means “the tester will try to create 500 requests per second”. If the tester, API, database, or local Docker environment cannot keep up, the actual RPS will be lower.
+
+The key formula is:
+
+```text
+maximum RPS is roughly = concurrency / latency_seconds
+```
+
+In your run:
+
+```text
+concurrency = 50
+average latency = 557.86 ms = 0.55786 s
+50 / 0.55786 = 89.6 RPS
+```
+
+That is why `Actual RPS = 88.23`. It almost perfectly matches the mathematical limit. The test is not failing randomly: with 50 concurrent requests and about 0.56 seconds average response time, it physically cannot complete 500 requests per second.
+
+Field meanings:
+
+| Field | Meaning |
+| --- | --- |
+| `Target RPS 500` | The rate the tester tried to create |
+| `Target requests 7500` | 500 RPS * 15 seconds |
+| `Scheduled requests 7497` | The tester scheduled almost all target requests |
+| `Sent to API 2289` | Only part of the requests actually reached the API |
+| `Dropped 5258` | The tester queue filled because 50 workers could not feed 500 RPS |
+| `Completed 2239` | Requests that finished with a response or client error |
+| `Actual RPS 88.23` | Real completed request rate |
+| `Average latency 557.86 ms` | Average API response time |
+| `P95 1802.65 ms` | 95% of responses were no slower than 1.8 seconds |
+| `ReadTimeout/ReadError` | Some requests did not receive a stable response from API/Nginx/Docker |
+
+`Real duration` became `25.38s` even though the active test was `15s` because the script waited for queued requests to drain. The default `--drain-timeout` is `10`, so the total wall time can become roughly `15 + 10` seconds.
+
+To get closer to `500 RPS`, you need either lower latency or higher concurrency. With your average latency, the approximate concurrency requirement is:
+
+```text
+500 RPS * 0.55786 s = 279 concurrent requests
+```
+
+More aggressive command:
+
+```powershell
+python tests\load_test.py --base-url http://127.0.0.1:8000 --rps 500 --duration 15 --concurrency 300 --queue-size 10000 --timeout 10
+```
+
+This still does not guarantee 500 RPS. If PostgreSQL, FastAPI workers, Nginx, or Docker Desktop become saturated, latency will grow and actual RPS will remain lower. For a clean analysis, test in steps: `100 RPS`, `200 RPS`, `300 RPS`, `500 RPS`.
+
 Run Locust headless:
 
 ```powershell
-docker compose run --rm -T locust -f /mnt/locust/locustfile.py --host http://api:8000 --headless -u 100 -r 20 -t 30s --only-summary
+docker compose run --rm -T --no-deps locust -f /mnt/locust/locustfile.py --host http://api:8000 --headless -u 100 -r 20 -t 30s --stop-timeout 5
 ```
+
+If the Locust command looks stuck, the usual reason is `--only-summary`: with that option Locust prints almost nothing during the test and only shows the final table. The README command was updated without `--only-summary` so progress is visible during the 30-second run.
+
+`--no-deps` means: do not recreate `postgres`, `redis`, `rabbitmq`, and `api` if they are already running from `docker compose up -d`. This removes the extra `[+] create ...` step and makes the headless run easier to understand.
+
+If Locust still does not finish:
+
+```powershell
+docker compose ps
+docker compose logs --tail=80 locust
+```
+
+Or open the Locust UI:
+
+```text
+http://127.0.0.1:8089
+```
+
+In this project, `locust` already runs as a separate UI service, so for manual tests you can simply open `8089`. Use the headless command only for one-off console benchmarks.
 
 ## Practical Conclusion
 
