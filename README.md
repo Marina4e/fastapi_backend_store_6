@@ -109,6 +109,10 @@ RETURNING product_id;
 
 `Dropped` означає, що браузер не встиг створити всі запити. Це очікувано для дуже високого RPS у браузері. Після оптимізації frontend менше витрачає CPU на перемальовування метрик, але браузерний тест все одно залишається навчальним, не еталонним benchmark.
 
+після змін:
+
+<img width="930" height="694" alt="Знімок екрана 2026-06-02 204122" src="https://github.com/user-attachments/assets/7657938d-d86d-4b4a-99fa-38e3ecb23193" />
+
 ### Locust Charts
 
 ![Locust Charts Prod 2](docs/screenshots/locust-charts-prod2.png)
@@ -116,6 +120,11 @@ RETURNING product_id;
 Locust показує стабільніший результат, бо він створений саме для навантажувальних тестів. На графіку видно приблизно `256-289 RPS`, `0% failures`, 100 користувачів і latency-графіки.
 
 Цей скриншот важливий: якщо frontend показує багато `Dropped`, а Locust при цьому тримає стабільний RPS без failures, проблема не обовʼязково в API. Часто обмеження на стороні генератора навантаження.
+
+після змін:
+
+<img width="948" height="656" alt="Знімок екрана 2026-06-02 222630" src="https://github.com/user-attachments/assets/1853d86d-3233-4bfc-83ed-3697f11a59e5" />
+
 
 ### Redis Commander
 
