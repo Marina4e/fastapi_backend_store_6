@@ -1,15 +1,8 @@
 services:
   api:
     build: .
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://store_user:store_password@postgres:5432/store_db}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
-      RABBITMQ_PURCHASE_QUEUE: ${RABBITMQ_PURCHASE_QUEUE:-purchase_events}
-      CORS_ORIGINS: ${CORS_ORIGINS:-*}
-      DB_POOL_MIN_SIZE: ${DB_POOL_MIN_SIZE:-5}
-      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-20}
-      API_WORKERS: ${API_WORKERS:-3}
+    env_file:
+      - .env
     expose:
       - "8000"
     depends_on:
@@ -39,10 +32,8 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-store_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-store_password}
-      POSTGRES_DB: ${POSTGRES_DB:-store_db}
+    env_file:
+      - .env
     ports:
       - "5432:5432"
     volumes:
@@ -70,8 +61,8 @@ services:
 
   redis-commander:
     image: rediscommander/redis-commander:latest
-    environment:
-      REDIS_HOSTS: local:redis:6379
+    env_file:
+      - .env
     ports:
       - "8081:8081"
     depends_on:
@@ -96,9 +87,8 @@ services:
   locust:
     image: locustio/locust:2.31.5
     command: -f /mnt/locust/locustfile.py --host http://api:8000
-    environment:
-      LOCUST_PRODUCT_ID: ${LOCUST_PRODUCT_ID:-42}
-      LOCUST_RESET_STOCK: ${LOCUST_RESET_STOCK:-50000}
+    env_file:
+      - .env
     ports:
       - "8089:8089"
     volumes:

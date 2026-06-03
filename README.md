@@ -1,6 +1,5 @@
 # FastAPI High-Load Shop Backend
 
-![CI](https://github.com/maryn/fastapi_backend_store_6/actions/workflows/sanity.yml/badge.svg)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?logo=fastapi&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
@@ -12,19 +11,19 @@
 
 ## English
 
-Production-style FastAPI backend for testing concurrent purchases under load. The API keeps product stock correct with an atomic PostgreSQL update, records purchase counters in Redis, publishes purchase events to RabbitMQ, and exposes the system through Nginx.
+Production-style educational backend for testing concurrent purchases under load. The API keeps product stock correct with an atomic PostgreSQL update, stores lightweight counters in Redis, publishes purchase events to RabbitMQ, and is exposed through Nginx.
 
-## Stack
+## Services
 
 | Service | Purpose | URL |
 | --- | --- | --- |
 | Frontend | Manual purchase and browser RPS test | http://127.0.0.1:8000/frontend/ |
 | FastAPI docs | API documentation | http://127.0.0.1:8000/docs |
-| Healthcheck | API health | http://127.0.0.1:8000/health |
+| Healthcheck | API status | http://127.0.0.1:8000/health |
 | Dependencies | Redis/RabbitMQ status | http://127.0.0.1:8000/system/dependencies |
 | Locust | Load-test UI | http://127.0.0.1:8089 |
-| Redis Commander | Redis keys | http://127.0.0.1:8081 |
-| RabbitMQ UI | RabbitMQ queues | http://127.0.0.1:15672 |
+| Redis Commander | Redis browser UI | http://127.0.0.1:8081 |
+| RabbitMQ UI | RabbitMQ management | http://127.0.0.1:15672 |
 
 RabbitMQ login:
 
@@ -32,76 +31,88 @@ RabbitMQ login:
 guest / guest
 ```
 
-## Run
+## First Run
 
-The project works without a committed `.env`. Defaults are defined in `docker-compose.yml` and `app/config.py`.
+The repository does not commit `.env`. The local `.env` is created from `.env.example`.
+
+Windows PowerShell:
 
 ```powershell
+git clone <your-repository-url>
+cd fastapi_backend_store_6
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+```
+
+Linux/macOS:
+
+```bash
+git clone <your-repository-url>
+cd fastapi_backend_store_6
+sh scripts/start.sh
+```
+
+Manual equivalent:
+
+```powershell
+Copy-Item .env.example .env
 docker compose up -d --build
 docker compose ps
 ```
 
-Optional local overrides:
+## Environment Files
+
+`.env.example` is the public template with demo values. `.env` is the local runtime file used by Docker Compose and ignored by Git.
+
+Do not put real production secrets into `.env.example`.
+
+## Useful Commands
 
 ```powershell
-Copy-Item .env.example .env
-```
+# Start or rebuild everything
+docker compose up -d --build
 
-`.env` is ignored by Git. Keep `.env.example` as the public template.
+# Show containers
+docker compose ps
 
-## Common Commands
-
-```powershell
 # Logs
 docker compose logs --tail=80 api nginx locust
 
-# Restart API after code changes
-docker compose up -d --build api nginx
+# API checks
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod http://127.0.0.1:8000/system/dependencies
 
-# Reset product stock before load tests
+# Reset product stock before tests
 $body = @{ stock = 50000 } | ConvertTo-Json
 Invoke-RestMethod -Uri "http://127.0.0.1:8000/products/42/reset" -Method Post -ContentType "application/json" -Body $body
 
-# Run local Python load test
+# Browser-independent Python load test
 python tests\load_test.py --base-url http://127.0.0.1:8000 --rps 300 --duration 15 --concurrency 50 --timeout 5
 
-# Run one-off Locust headless test
+# One-off Locust headless test
 docker compose run --rm -T --no-deps locust -f /mnt/locust/locustfile.py --host http://api:8000 --headless -u 100 -r 20 -t 30s --stop-timeout 5
 
-# Run sanity tests
+# Sanity tests
 python -m pytest
 ```
 
-## Reset Locust
+## Locust Reset
 
-By default Locust resets `product_id=42` to `50000` stock at the start of every Locust run. This is controlled by:
+Locust can look “stuck” on the second UI run if the browser keeps an old chart session or if product stock is already depleted. This project resets the test product automatically at the start of each Locust run:
 
 ```text
 LOCUST_PRODUCT_ID=42
 LOCUST_RESET_STOCK=50000
 ```
 
-Set `LOCUST_RESET_STOCK=0` if you want Locust to keep the current database stock.
+Change these values in `.env`. Set `LOCUST_RESET_STOCK=0` only if you intentionally want to keep the current stock.
 
-If Locust statistics work but charts do not update on the second run, first click the orange `RESET` button in the Locust UI. If the chart is still stale, restart only the Locust service:
+Reset only Locust:
 
 ```powershell
 docker compose restart locust
 ```
 
-Then open:
-
-```text
-http://127.0.0.1:8089
-```
-
-If the browser still shows stale charts:
-
-```text
-Ctrl + F5
-```
-
-Full Locust container reset:
+Full Locust UI reset:
 
 ```powershell
 docker compose stop locust
@@ -109,39 +120,44 @@ docker compose rm -f locust
 docker compose up -d locust
 ```
 
-Why it happens: Locust keeps in-memory test statistics and the browser keeps a live UI/WebSocket session. A second run may show statistics while the chart canvas does not redraw cleanly. Another common reason is depleted product stock: the test gets `409 Conflict` immediately and stops before charts have enough data. Restarting only the `locust` service resets Locust without touching PostgreSQL, Redis, RabbitMQ, or API data.
-
-## Cleanup
-
-`__pycache__` directories are Python bytecode cache. They are not source code and should not be committed.
-
-```powershell
-$root = (Resolve-Path .).Path
-foreach ($dir in @('app\__pycache__','tests\__pycache__')) {
-  $full = (Resolve-Path $dir -ErrorAction SilentlyContinue).Path
-  if ($full -and $full.StartsWith($root)) {
-    Remove-Item -LiteralPath $full -Recurse -Force
-  }
-}
-```
-
-## CI
-
-The badge at the top is a GitHub Actions status badge. The workflow lives in:
+In the browser, also try:
 
 ```text
-.github/workflows/sanity.yml
+Ctrl + F5
 ```
 
-It installs dependencies and runs:
+## CI / Sanity Workflow
 
-```powershell
-pytest
+`.github/workflows/sanity.yml` is a GitHub Actions workflow. It runs on GitHub after push or pull request and checks that dependencies install and `pytest` passes.
+
+The CI badge was removed from the top of this README because a badge URL is repository-specific. A broken badge usually means one of these:
+
+- the workflow file has not been pushed to GitHub yet;
+- GitHub Actions is disabled for the repository;
+- the README badge URL uses the wrong owner or repository name;
+- the workflow has never run.
+
+If you want the badge back after pushing to GitHub, use this format and replace owner/repository/branch:
+
+```markdown
+![Sanity](https://github.com/<OWNER>/<REPOSITORY>/actions/workflows/sanity.yml/badge.svg?branch=main)
 ```
 
 ## Screenshots
 
+Frontend RPS test:
+
 ![Frontend RPS](docs/screenshots/frontend-rps-300-prod2.png)
+
+Locust statistics:
+
+![Locust Statistics](docs/screenshots/locust-statistics-2026-06-03.png)
+
+Locust charts:
+
+![Locust Charts](docs/screenshots/locust-charts-2026-06-03.png)
+
+RabbitMQ overview:
 
 ![RabbitMQ Overview](docs/screenshots/rabbitmq-overview-prod2.png)
 
@@ -151,7 +167,7 @@ pytest
 
 Це навчально-production приклад backend-магазину на FastAPI. Проєкт показує, як API поводиться під навантаженням, коли багато користувачів одночасно купують один товар.
 
-Головна backend-проблема тут проста: товар не можна продати “в мінус”. Для цього покупка виконується через атомарний SQL-запит у PostgreSQL:
+Головна ідея: товар не можна продати “в мінус”. Для цього покупка виконується атомарним SQL-запитом у PostgreSQL:
 
 ```sql
 UPDATE products
@@ -161,7 +177,7 @@ WHERE product_id = $2
 RETURNING product_id;
 ```
 
-Якщо товар є, PostgreSQL списує `stock`. Якщо товару не вистачає, API повертає `409 Conflict`, а залишок не змінюється.
+Перевірка залишку і списання відбуваються як одна операція. Якщо товару вистачає, PostgreSQL списує `stock`. Якщо товару не вистачає, API повертає `409 Conflict`, а склад не змінюється.
 
 ## Що є в проєкті
 
@@ -176,24 +192,48 @@ RETURNING product_id;
 | Locust | Нормальніший load-test, ніж браузер |
 | Redis Commander | Перегляд Redis через браузер |
 | RabbitMQ UI | Перегляд черг RabbitMQ |
-| GitHub Actions | Sanity test у GitHub після push/pull request |
+| GitHub Actions | Sanity test після push/pull request |
 
-## Як запустити
+## Правильний перший запуск
+
+У GitHub не треба зберігати `.env`, бо це локальний файл налаштувань. У репозиторії зберігається тільки `.env.example`.
+
+Після завантаження проєкту запусти:
 
 ```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+```
+
+Цей скрипт:
+
+1. Перевіряє, чи існує `.env`.
+2. Якщо `.env` немає, копіює `.env.example` у `.env`.
+3. Запускає `docker compose up -d --build`.
+4. Показує `docker compose ps`.
+
+Якщо хочеш зробити це вручну:
+
+```powershell
+Copy-Item .env.example .env
 docker compose up -d --build
 docker compose ps
 ```
 
-Якщо треба змінити worker-и, pool або паролі локально:
+Linux/macOS:
 
-```powershell
-Copy-Item .env.example .env
+```bash
+sh scripts/start.sh
 ```
 
-Після цього редагуй `.env`. Сам файл `.env` ігнорується Git-ом.
+## Навіщо `.env.example` і `.env`
 
-## Адреси
+`.env.example` - це шаблон для GitHub. У ньому можна показати demo-значення: користувач PostgreSQL, пароль для локального стенду, URL Redis, URL RabbitMQ, налаштування Locust.
+
+`.env` - це реальний локальний файл, який читає Docker Compose. Він створюється з `.env.example`, але не комітиться в Git.
+
+Така схема нормальна для production-проєктів: приклад налаштувань є в репозиторії, а реальні секрети або локальні значення залишаються тільки на машині розробника чи на сервері.
+
+## Адреси після запуску
 
 | Сервіс | URL |
 | --- | --- |
@@ -211,6 +251,34 @@ RabbitMQ:
 guest / guest
 ```
 
+## Команди для перевірки
+
+```powershell
+docker compose ps
+docker compose logs --tail=80 api nginx locust
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod http://127.0.0.1:8000/system/dependencies
+```
+
+Скинути залишок товару:
+
+```powershell
+$body = @{ stock = 50000 } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/products/42/reset" -Method Post -ContentType "application/json" -Body $body
+```
+
+Запустити Python load test:
+
+```powershell
+python tests\load_test.py --base-url http://127.0.0.1:8000 --rps 300 --duration 15 --concurrency 50 --timeout 5
+```
+
+Запустити Locust без UI:
+
+```powershell
+docker compose run --rm -T --no-deps locust -f /mnt/locust/locustfile.py --host http://api:8000 --headless -u 100 -r 20 -t 30s --stop-timeout 5
+```
+
 ## Frontend
 
 Frontend потрібен для ручної перевірки:
@@ -221,48 +289,41 @@ Frontend потрібен для ручної перевірки:
 - запустити браузерний RPS-тест;
 - побачити `successful`, `409 Conflict`, `Dropped`, `Actual RPS`.
 
-На скриншоті видно тест `300 RPS`, `15 sec`, `concurrency 50`. Браузер завершив `3367` запитів із `4500`, а `1133` були `Dropped`.
-
 ![Frontend RPS](docs/screenshots/frontend-rps-300-prod2.png)
 
 `Dropped` не завжди означає помилку backend. Часто це означає, що браузер не встигає створити запланований RPS. Для точнішого benchmark краще використовувати Locust або `tests/load_test.py`.
 
-## Locust: чому другий запуск може не показувати charts
+## Locust
 
-Locust UI тримає статистику в памʼяті контейнера і окремо малює charts у браузері. Іноді після першого тесту другий запуск оновлює таблиці, але графіки не перемальовуються. Це не проблема RabbitMQ або API. Найчастіше це стан Locust UI, браузерної сесії або закінчений stock.
+Locust краще підходить для RPS-тесту, ніж браузерний frontend-тест. Він показує таблиці, RPS, latency percentiles і charts.
 
-У цьому проєкті Locust перед кожним запуском автоматично скидає тестовий товар:
+![Locust Statistics](docs/screenshots/locust-statistics-2026-06-03.png)
+
+![Locust Charts](docs/screenshots/locust-charts-2026-06-03.png)
+
+## Чому другий запуск Locust іноді не малює charts
+
+Є дві часті причини:
+
+1. Locust UI або браузер тримає стару live-сесію charts.
+2. Після першого тесту stock уже закінчився, другий тест швидко отримує `409 Conflict`, зупиняється, і графік майже не встигає намалюватися.
+
+У цьому проєкті друга причина виправлена: Locust перед кожним запуском скидає тестовий товар:
 
 ```text
 LOCUST_PRODUCT_ID=42
 LOCUST_RESET_STOCK=50000
 ```
 
-Це зроблено спеціально, щоб другий запуск Locust не завершувався миттєво через `409 Conflict`. Якщо хочеш тестувати поведінку з малим залишком, постав у `.env`:
+Це налаштовується в `.env`.
 
-```text
-LOCUST_RESET_STOCK=0
-```
-
-Швидкий reset:
+Якщо charts все одно не оновлюються:
 
 ```powershell
 docker compose restart locust
 ```
 
-Після цього відкрий:
-
-```text
-http://127.0.0.1:8089
-```
-
-Якщо браузер показує старий стан:
-
-```text
-Ctrl + F5
-```
-
-Повний reset тільки Locust:
+Або повністю пересоздай тільки Locust:
 
 ```powershell
 docker compose stop locust
@@ -270,22 +331,11 @@ docker compose rm -f locust
 docker compose up -d locust
 ```
 
-Це не видаляє PostgreSQL, Redis або RabbitMQ volumes. Воно перезапускає тільки load-test UI.
+У браузері також натисни:
 
-Headless запуск через термінал:
-
-```powershell
-docker compose run --rm -T --no-deps locust -f /mnt/locust/locustfile.py --host http://api:8000 --headless -u 100 -r 20 -t 30s --stop-timeout 5
+```text
+Ctrl + F5
 ```
-
-Пояснення:
-
-- `--no-deps` не створює заново API/Postgres/Redis/RabbitMQ, якщо вони вже запущені;
-- `--headless` запускає тест без UI;
-- `-u 100` створює 100 користувачів;
-- `-r 20` додає 20 користувачів за секунду;
-- `-t 30s` обмежує тест 30 секундами;
-- `--stop-timeout 5` дає Locust 5 секунд на акуратне завершення.
 
 ## RabbitMQ
 
@@ -293,7 +343,7 @@ RabbitMQ працює як черга подій. Кожна успішна по
 
 ![RabbitMQ Overview](docs/screenshots/rabbitmq-overview-prod2.png)
 
-На скриншоті видно, що в RabbitMQ є `30,667` повідомлень `Ready`. Це означає: API створює події, але окремого consumer-сервісу поки немає, тому повідомлення накопичуються. Для навчального прикладу це нормально. У production наступний крок - додати worker, який читає цю чергу.
+Якщо в RabbitMQ багато `Ready` messages, це означає, що API створює події, але окремого consumer-сервісу ще немає. Для навчального стенду це нормально. Для production наступний крок - додати worker, який читає queue.
 
 Корисні команди:
 
@@ -302,43 +352,38 @@ docker compose exec rabbitmq rabbitmqctl list_queues name messages_ready message
 docker compose exec rabbitmq rabbitmqctl purge_queue purchase_events
 ```
 
-## Load Test Через Python
+## Sanity Test і файл `.github/workflows/sanity.yml`
 
-```powershell
-python tests\load_test.py --base-url http://127.0.0.1:8000 --rps 300 --duration 15 --concurrency 50 --timeout 5
-```
+Sanity test - це швидка перевірка, що структура проєкту не зламана:
 
-У summary тепер є блок `Concurrency math`. Він пояснює, чому цільовий RPS може бути більшим за фактичний.
+- важливі файли існують;
+- `.env` не лежить у Git;
+- Python-файли парсяться без синтаксичних помилок;
+- у `app/` немає `__pycache__`.
 
-Формула:
-
-```text
-max RPS приблизно = concurrency / latency_seconds
-```
-
-Наприклад, якщо `concurrency=50`, а середня latency `0.55s`, то фізична межа приблизно:
-
-```text
-50 / 0.55 = 90 RPS
-```
-
-Тому `--rps 500` означає тільки ціль тестера, а не гарантію, що backend реально видасть 500 RPS.
-
-## Sanity Test
-
-Sanity test - це швидка перевірка, що важливі файли проєкту існують і структура не зламана.
-
-Запуск локально:
+Локально:
 
 ```powershell
 python -m pytest
 ```
 
-У GitHub це запускається автоматично через `.github/workflows/sanity.yml`. Саме цей workflow дає CI badge зверху README.
+У GitHub це запускає файл:
+
+```text
+.github/workflows/sanity.yml
+```
+
+Чому badge зверху не показувався: CI badge не є файлом, який “скачується” в проєкт. Це SVG, який GitHub генерує за URL конкретного репозиторію. Якщо URL неправильний, workflow ще не запушений або GitHub Actions ще не запускались, картинка буде битою. Тому я прибрав CI badge з верхньої частини README, щоб GitHub не виглядав неохайно.
+
+Коли репозиторій буде на GitHub і Actions запустяться, можна повернути badge так:
+
+```markdown
+![Sanity](https://github.com/<OWNER>/<REPOSITORY>/actions/workflows/sanity.yml/badge.svg?branch=main)
+```
 
 ## `__pycache__`
 
-`__pycache__` - це службові файли Python, які створюються автоматично для пришвидшення імпортів. Вони не потрібні в GitHub і не є частиною коду.
+`__pycache__` - це службові файли Python. Вони створюються автоматично для пришвидшення імпортів. Це не код і не документація, тому в GitHub їх не потрібно зберігати.
 
 Видалити локально:
 
@@ -357,13 +402,14 @@ foreach ($dir in @('app\__pycache__','tests\__pycache__')) {
 ```text
 __pycache__/
 *.py[cod]
+.pytest_cache/
 ```
 
 ## Production Notes
 
-- `.env` не комітиться.
-- `.env.example` лишається як шаблон.
-- `docker-compose.yml` має дефолти, тому проєкт стартує без `.env`.
-- Locust reset робиться окремо, без reset бази.
+- `.env.example` залишається в Git як шаблон.
+- `.env` створюється локально і не комітиться.
+- `docker-compose.yml` читає `.env` через `env_file`.
+- Locust автоматично готує stock перед тестом.
 - RabbitMQ може накопичувати повідомлення, якщо немає consumer.
 - Для точного benchmark краще використовувати Locust headless або Python load test, а не браузерний RPS-тест.
