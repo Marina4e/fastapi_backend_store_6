@@ -11,6 +11,8 @@ from app.integrations import Integrations
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    # Один pool на процес FastAPI worker: це дешевше й стабільніше, ніж відкривати
+    # нове підключення до PostgreSQL на кожен HTTP-запит.
     app.state.db_pool = await create_pool()
     app.state.integrations = Integrations(settings)
     await app.state.integrations.connect()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import asyncio
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -22,6 +22,8 @@ class Integrations:
     async def connect(self, attempts: int = 10, delay_seconds: float = 2.0) -> None:
         self.redis = Redis.from_url(self.settings.redis_url, decode_responses=True)
         last_error: Exception | None = None
+        # RabbitMQ container can pass Docker healthcheck before AMQP is fully ready.
+        # Retry keeps `docker compose up` stable after a clean start.
         for _ in range(attempts):
             try:
                 self.rabbitmq = await aio_pika.connect_robust(self.settings.rabbitmq_url)
@@ -49,6 +51,7 @@ class Integrations:
         if self.redis is not None:
             now = datetime.now(UTC).isoformat()
             pipe = self.redis.pipeline(transaction=False)
+            # Pipeline зменшує кількість round trips до Redis під час RPS-тесту.
             pipe.incr("store:purchases:success")
             pipe.set(
                 "store:purchases:last",

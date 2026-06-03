@@ -3,7 +3,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    database_url: str
+    # Дефолти дозволяють запустити Docker Compose без локального .env.
+    # .env потрібен тільки тоді, коли треба перевизначити значення під свою машину.
+    database_url: str = "postgresql://store_user:store_password@postgres:5432/store_db"
     redis_url: str = "redis://redis:6379/0"
     rabbitmq_url: str = "amqp://guest:guest@rabbitmq:5672/"
     rabbitmq_purchase_queue: str = "purchase_events"
@@ -27,4 +29,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings() # type: ignore
+    return Settings()

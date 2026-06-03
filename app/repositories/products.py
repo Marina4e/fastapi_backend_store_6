@@ -37,6 +37,8 @@ async def decrement_stock_if_available(
     product_id: int,
     purchased_count: int,
 ) -> int | None:
+    # Ключовий запит проєкту: перевірка stock і списання виконуються атомарно в PostgreSQL.
+    # Завдяки цьому паралельні покупки не можуть продати товар "в мінус".
     return await connection.fetchval(
         """
         UPDATE products

@@ -86,6 +86,8 @@ def print_summary(args: argparse.Namespace, result: Result, elapsed: float) -> N
     p95_latency = percentile(result.latencies_ms, 95)
     avg_latency_seconds = avg_latency / 1000
     p95_latency_seconds = p95_latency / 1000
+    # Ця формула допомагає пояснити, чому цільовий RPS може бути вищим за фактичний:
+    # якщо latency велика, поточна concurrency фізично обмежує throughput тестера.
     estimated_rps_by_avg_latency = args.concurrency / avg_latency_seconds if avg_latency_seconds else 0.0
     estimated_rps_by_p95_latency = args.concurrency / p95_latency_seconds if p95_latency_seconds else 0.0
     estimated_required_concurrency = args.rps * avg_latency_seconds

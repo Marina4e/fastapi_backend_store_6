@@ -18,6 +18,8 @@ async def purchase_product(
     if updated_product_id is not None:
         return
 
+    # 404 і 409 розділяємо спеціально: для користувача це різні причини відмови.
+    # 409 у load-test не означає падіння API, а лише те, що stock уже закінчився.
     if not await product_exists(connection, payload.product_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
 
@@ -29,5 +31,6 @@ async def publish_purchase_event(app: FastAPI, payload: PurchaseRequest) -> None
     try:
         await integrations.publish_purchase(payload.model_dump())
     except Exception:
-        # Purchase response must not fail after stock was already decremented.
+        # Подія Redis/RabbitMQ є допоміжною телеметрією.
+        # Якщо вона тимчасово не записалась, успішну покупку вже не можна перетворювати на 500.
         pass

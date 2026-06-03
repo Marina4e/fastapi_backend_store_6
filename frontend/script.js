@@ -165,6 +165,8 @@ resetStockButton.addEventListener("click", async () => {
 
 function updateMetrics(state, force = false) {
   const now = performance.now();
+  // Під час RPS-тесту не перемальовуємо DOM на кожен запит:
+  // інакше браузер витрачає CPU на інтерфейс замість генерації навантаження.
   if (!force && now - lastMetricsRenderAt < 250) {
     pendingMetricsRender = state;
     if (!metricsRenderTimer) {
